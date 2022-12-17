@@ -1,4 +1,4 @@
-# This is a testbed for tuning Kafka using KF-PCA tracking algorithm
+# Tuning Kafka using KF-PCA tracking algorithm
 
 ## Setup
 
