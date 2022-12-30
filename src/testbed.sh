@@ -4,17 +4,13 @@ declare -A CFG=()
 
 get_properties() {
     SCRIPT=`pwd`/$0
-
     BASE=src/$(basename -- $SCRIPT)
-
     CFG_FILE="${SCRIPT//$BASE/}config/testbed.properties"
-
     echo Config file is $CFG_FILE
 
     for x in `grep = $CFG_FILE`; do
         CFG["${x//=*/}"]="${x//*=/}"
     done
-
     echo properties = ${!CFG[@]}
   
     KAFKA_HOME=${CFG["kafka.home"]}
@@ -40,10 +36,15 @@ setup_brokers {
 launch_brokers {
     NUM_BROKERS=${CFG["kafka.num_brokers"]}
     for i in {0..$(($NUM_BROKERS-1))}; do
-        $KAFKA_HOME_broker$i/bin/kafka-server-start.sh $KAFKA_HOME_broker$i/config/server.properties
+        $KAFKA_HOME_broker$i/bin/kafka-server-start.sh \
+	    $KAFKA_HOME_broker$i/config/server.properties
     done
-    $KAFKA_HOME/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor $NUM_BROKERS --partitions 10 --topic topic1
-    $KAFKA_HOME/bin/kafka-topics.sh --describe --topic topic1 --zookeeper localhost:2181
+    topics=${CFG["kafka.topics"]}
+    topic=${topics//,*/}
+    $KAFKA_HOME/bin/kafka-topics.sh --create --zookeeper localhost:2181 \
+        --replication-factor $NUM_BROKERS --partitions 10 --topic $topic
+    $KAFKA_HOME/bin/kafka-topics.sh --describe --topic $topic \
+        --zookeeper localhost:2181
 }
 
 get_properties
