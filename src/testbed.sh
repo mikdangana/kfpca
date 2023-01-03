@@ -34,13 +34,20 @@ setup_brokers {
 }
 
 launch_brokers {
+    get_properties
     NUM_BROKERS=${CFG["kafka.num_brokers"]}
+    QUEUE_REQ=${CFG["queued.max.requests"]}
+    STARTUP_TS=${CFG["kafka.startup_time_sec"]}
     for i in {0..$(($NUM_BROKERS-1))}; do
+        CFG_FILE=$KAFKA_HOME_broker$i/config/server.properties
+	sed -i 's/(queued.max.requests*=).*/\1$QUEUE_REQ/' $CFG_FILE
+        $KAFKA_HOME_broker$i/bin/kafka-server-stop.sh 
+	sleep $STARTUP_TS
         $KAFKA_HOME_broker$i/bin/kafka-server-start.sh \
 	    $KAFKA_HOME_broker$i/config/server.properties
+	sleep $STARTUP_TS
     done
-    topics=${CFG["kafka.topics"]}
-    topic=${topics//,*/}
+    topic=${CFG["kafka.topics"]//,*/}
     $KAFKA_HOME/bin/kafka-topics.sh --create --zookeeper localhost:2181 \
         --replication-factor $NUM_BROKERS --partitions 10 --topic $topic
     $KAFKA_HOME/bin/kafka-topics.sh --describe --topic $topic \

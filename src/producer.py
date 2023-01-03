@@ -17,7 +17,7 @@ class PoissonProducer:
 
 
     def __init__(self):
-        self.load_configs()
+        self.config = self.load_configs()
         self.num_points = float(self.config.get("poisson.n_per_t"))
         self.topic = config.get("kafka.topics").split(",")[0]
         # Bootstrap servers - you can input multiple ones with comma seperated.
@@ -26,13 +26,13 @@ class PoissonProducer:
         self.producer = KafkaProducer(bootstrap_servers=bootstrap_servers[0])
 
 
-    def load_configs(self):
-        self.config = Properties()
-        with open(os.path.join(os.path.dirname(__file__), 
-                               '../config/testbed.properties'), 
-                  'rb') as config_file:
-        self.config.load(config_file)
-        return self.config
+    @staticmethod
+    def load_configs(self, path=os.path.join(os.path.dirname(__file__), 
+                                             '../config/testbed.properties')):
+        config = Properties()
+        with open(path, 'rb') as config_file:
+            config.load(config_file)
+        return config
 
 
     def poisson_next_ms(self, t):
@@ -54,5 +54,8 @@ class PoissonProducer:
 poisson = PoissonProducer()
 
 for t in range(100):
-    poisson.poisson_send(b'test message bytes')
+    ts = datetime.now() - timedelta(minutes=60)
+    # Convert to epoch milliseconds
+    ts_ms = ts.timestamp()*1000.0
+    poisson.poisson_send(bytes(f'{ts_ms}', 'utf-8'))
 
