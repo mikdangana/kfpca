@@ -42,21 +42,24 @@ class ActiveConsumer
         self.consumer.seek(partition=topic_partition_0, offset=offset_p0.offset)
 
 
-    def get_latency_throughput(self, records):
+    def get_latency_throughputs(self, records):
+        metrics = {}
         ts = datetime.now() - timedelta(minutes=60)
-        # Convert to epoch milliseconds
         ts_ms = ts.timestamp()*1000.0
-        total_latency = 0
         for topic_data, consumer_records in records.items():
             for consumer_record in consumer_records:
-                print(str(consumer_record.value.decode('utf-8')))
                 print(f"Consumer_record = {consumer_record}")
+                key = f"{consumer_record.topic()}-{consumer_record.partition()}"
                 latency = ts_ms - float(consumer_record.value.decode("utf-8"))
-                total_latency += latency
-        mean_latency = total_latency / records.items().size()
-        throughput_recs = records.items.size() / mean_latency
-        print(f'mean_latency = {latency}, throughput = {throughput_recs}')
-        return mean_latency, throughput_recs
+                metrics[k] = metrics[k] + [1, latency] if k in metrics else \
+                             [1, latency]
+        def means([size, total_latency]):
+            mean_latency = total_latency / size
+            throughput_recs = size / mean_latency
+            print(f'mean_latency = {latency}, throughput = {throughput_recs}')
+            return mean_latency, throughput_recs
+        values = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
+        return list(values)
   
 
     def get_leader(self, topic, partition):
@@ -93,17 +96,20 @@ class ActiveConsumer
 
     def listen(self):
         self.setup_listener()
+        self.max_latency = float(self.config.get("max_latency"))
+        self.min_throughput = float(self.config.get("min_throughput"))
         while True:
             print('polling...')
             records = self.consumer.poll(timeout_ms=1000)
-            latency, throughput = get_latency_throughput(records)
-            self.max_latency = float(self.config.get("max_latency"))
-            self.min_throughput = float(self.config.get("min_throughput"))
-            if latency > max_latency or throughput < min_throughput:
+            for topic, partition, latency, throughput in \
+                    get_latency_throughputs(records):
+              print("topic={topic}, partition={partition}, " \
+                    "latency={latency}, throughput={throughput}") 
+              if latency > max_latency or throughput < min_throughput:
                 if !self.is_scaled:
                     # scale up broker queue size
                     scale_broker(topic, partition)
-            else if self.is_scaled:
+              else if self.is_scaled:
                 # scale down broker queue size
                 scale_broker(topic, partition, False)
 
