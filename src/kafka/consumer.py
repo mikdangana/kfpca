@@ -2,7 +2,10 @@ from datetime import datetime
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
 from datetime import datetime, timedelta
+from ../ekf import *
+from ../utils import *
 import os, re
+import numpy as np
 import subprocess as sp
 
 
@@ -12,6 +15,7 @@ class ActiveConsumer
     consumer = None
     config = None
     is_scaled = False
+    kf = None
 
     def __init__(self):
         self.config = PoissonProducer.load_config()
@@ -19,6 +23,7 @@ class ActiveConsumer
         bootstrap_servers = self.config.get("kafka.endpoints").split(",")
         self.consumer = KafkaConsumer(
             self.topic, bootstrap_servers=bootstrap_servers)
+        self.kf = PCAKalmanFilter()
 
 
     def setup_listener(self):
@@ -49,17 +54,56 @@ class ActiveConsumer
         for topic_data, consumer_records in records.items():
             for consumer_record in consumer_records:
                 print(f"Consumer_record = {consumer_record}")
-                key = f"{consumer_record.topic()}-{consumer_record.partition()}"
+                k = f"{consumer_record.topic()}-{consumer_record.partition()}"
                 latency = ts_ms - float(consumer_record.value.decode("utf-8"))
-                metrics[k] = metrics[k] + [1, latency] if k in metrics else \
-                             [1, latency]
+                metrics[k] = np.array([1, latency]) if k not in metrics else \
+                             np.array([1, latency]) + metrics[k]
         def means([size, total_latency]):
             mean_latency = total_latency / size
             throughput_recs = size / mean_latency
             print(f'mean_latency = {latency}, throughput = {throughput_recs}')
             return mean_latency, throughput_recs
-        values = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
-        return list(values)
+        tuples = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
+        return list(tuples)
+
+    
+    def means(self, [size, total_latency]):
+        mean_latency = total_latency / size
+        throughput_recs = size / mean_latency
+        print(f'mean_latency = {latency}, throughput = {throughput_recs}')
+        return mean_latency, throughput_recs
+
+
+    def to_metrics(self, requests, metrics, track_cadence):
+        for i, consumer_record in zip(range(len(requests)), requests):
+            val = float(consumer_record.value.decode("utf-8"))
+            msmts.append(val)
+            if i % track_cadence < 1 and len(msmts) and len(msmts[0]) > 1:
+                # compute jacobian
+                latencies.append(ts_ms - val)
+                kf.update(msmts[-1], Hj=to_jacobian(msmts[-2:], latencies[-2:]))
+            else:
+                # track latency/throughput
+                latencies.append(kf.predict(msmts[-1]))
+            print(f"Consumer_record = {consumer_record}")
+            k = f"{consumer_record.topic()}-{consumer_record.partition()}"
+            metrics[k] = np.array([1, latencies[-1]]) if k not in metrics else \
+                         np.array([1, latencies[-1]]) + metrics[k]
+            return metrics
+
+
+    def track_latency_throughputs(self, records):
+        metrics, msmts, latencies = {}, [], []
+        ts = datetime.now() - timedelta(minutes=60)
+        ts_ms = ts.timestamp()*1000.0
+        kf_update_rate = self.config.get("kf.update.rate")
+        mod = 0 if kf_update_rate<=0 else 1/kf_update_rate
+        for topic_data, requests in records.items():
+            #requests.sort(key=lambda rec : float(rec.value.decode("utf-8")))
+            self.to_metrics(requests, metrics, mod)
+        tuples = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
+        pickleconc(self.config.get("data.tracking.file"), tuples)
+        return list(tuples)
   
 
     def get_leader(self, topic, partition):
