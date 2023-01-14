@@ -54,7 +54,12 @@ launch_brokers {
         --zookeeper localhost:2181
 }
 
+launch_tracker {
+    export FLASK_APP=$BASE/src/kafka/tracker.py
+    python -m flask run
+}
+
 get_properties
 setup_brokers
 launch_brokers
-
+launch_tracker

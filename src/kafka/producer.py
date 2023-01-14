@@ -4,31 +4,31 @@ from kafka import KafkaProducer
 from kafka.structs import TopicPartition
 from datetime import datetime, timedelta
 import numpy as np
-import time
+import os, time
 
 
 class PoissonProducer:
 
-    self.config = None
-    self.num_points = 0.0
+    config = None
+    num_points = 0.0
     # Topic name
-    self.topic = ""
-    self.producer = None
+    topic = ""
+    producer = None
 
 
     def __init__(self):
         self.config = self.load_configs()
-        self.num_points = float(self.config.get("poisson.n_per_t"))
-        self.topic = config.get("kafka.topics").split(",")[0]
+        self.num_points = float(self.config.get("poisson.n_per_t").data)
+        self.topic = self.config.get("kafka.topics").data.split(",")[0]
         # Bootstrap servers - you can input multiple ones with comma seperated.
         # for example, bs1:9092, bs2:9092
-        bootstrap_servers = config.get("kafka.endpoints").split(",")
+        bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
         self.producer = KafkaProducer(bootstrap_servers=bootstrap_servers[0])
 
 
     @staticmethod
-    def load_configs(self, path=os.path.join(os.path.dirname(__file__), 
-                                             '../config/testbed.properties')):
+    def load_configs(path=os.path.join(os.path.dirname(__file__), '..',
+                                       '..', 'config', 'testbed.properties')):
         config = Properties()
         with open(path, 'rb') as config_file:
             config.load(config_file)
@@ -36,7 +36,7 @@ class PoissonProducer:
 
 
     def poisson_next_ms(self, t):
-        plambda = float(config.get("poisson.lambda"))
+        plambda = float(self.config.get("poisson.lambda").data)
         n = np.range(0, self.num_points)
         prob = np.power(plambda*t,n)/np.math.factorial(n)*np.exp(-plambda*t)
         return prob.argmax(axis=1)
@@ -51,11 +51,14 @@ class PoissonProducer:
         self.producer.flash()
 
 
-poisson = PoissonProducer()
 
-for t in range(100):
-    ts = datetime.now() - timedelta(minutes=60)
-    # Convert to epoch milliseconds
-    ts_ms = ts.timestamp()*1000.0
-    poisson.poisson_send(bytes(f'{ts_ms}', 'utf-8'))
+if __name__ == "__main__":
+
+    poisson = PoissonProducer()
+
+    for t in range(100):
+        ts = datetime.now() - timedelta(minutes=60)
+        # Convert to epoch milliseconds
+        ts_ms = ts.timestamp()*1000.0
+        poisson.poisson_send(bytes(f'{ts_ms}', 'utf-8'))
 

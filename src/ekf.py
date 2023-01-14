@@ -175,7 +175,7 @@ def update_ekf(ekf, z_data, R=None, m_c = None, Hj=None, H=None):
     return (ekf, priors)
 
 
-class PCAKalmanFilter
+class PCAKalmanFilter:
 
     ekf = None
 

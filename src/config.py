@@ -108,7 +108,6 @@ def process_args():
             usage()
             exit()
 
-process_args()
 
 
 def do_action(x_prior, host=None):
@@ -357,7 +356,7 @@ def init_config_variables():
     logger.info("init_config_variables() done")
 
 
-init_config_variables()
+#init_config_variables()
 
 
 def test_config():
@@ -404,6 +403,7 @@ def test_do_action():
 
 
 if __name__ == "__main__":
+    process_args()
     load_config()
     test_config()
     test_threshold_tasks()

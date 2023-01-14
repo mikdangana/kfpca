@@ -16,7 +16,6 @@ from csv import reader
 from scipy.misc import derivative
 
 logger = logging.getLogger("Lstm")
-tf.compat.v1.disable_v2_behavior()
 
 
 
@@ -208,7 +207,7 @@ class Lstm:
                 def update_weights(x, y): # x=input, y=labels
                     ws, bs = [v for v in [weights['out'], biases['out']]]
                     logger.info("weights,biases = " + \
-                                str((weights['out'],biases['out'], x, y, ws, bs)))
+                                str((weights['out'],biases['out'],x,y,ws,bs)))
                     hist[0].append(Y-model) # -ve cost
                     hist[1].append(ws)
                     hist[2].append(bs)
@@ -249,7 +248,7 @@ class Lstm:
                 if not grad_fn == None and i % Gf > 0 and i > 0:
                   x = tf.Variable(batch_x if use_logistic_regression else 
                                   to_size(batch_x,n_msmt, n_entries), 
-                                  [n_entries,n_msmt,n_features], dtype=tf.float32)
+                                  [n_entries,n_msmt,n_features],dtype=tf.float32)
                   y = tf.Variable(batch_y if use_logistic_regression else 
                                   to_size(batch_y, n_lstm_out, n_entries),
                                   [1, n_lstm_out, n_classes], dtype=tf.float32)
@@ -359,6 +358,7 @@ class Lstm:
 
 
 if __name__ == "__main__":
+    tf.compat.v1.disable_v2_behavior()
     Lstm().tune_model(15)
     logger.debug("done")
     print("Output in lstm_ekf.log")

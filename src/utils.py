@@ -15,7 +15,7 @@ from time import time
 logger = logging.getLogger("Utils")
 logger.setLevel(logging.DEBUG)
 
-logging.basicConfig(filename='lstm_ekf.log', 
+logging.basicConfig(filename='tracker.log', 
     format='%(levelname)s %(asctime)s in %(funcName)s() ' +
         '%(filename)s-%(lineno)s: %(message)s \n', level=logging.DEBUG)
 

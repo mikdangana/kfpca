@@ -5,7 +5,7 @@
 vim config/testbed.properties
 
 ### If not installed
-pip install jproperties
+pip install -r requirements.txt
 
 ## How to run
 sh src/testbed.sh

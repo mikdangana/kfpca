@@ -1,0 +1,9 @@
+jproperties
+numpy
+scipy
+sklearn
+tensorflow
+filterpy
+plot
+kafka-python
+requests
