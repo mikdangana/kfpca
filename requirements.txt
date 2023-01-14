@@ -7,3 +7,4 @@ filterpy
 plot
 kafka-python
 requests
+flask

@@ -27,6 +27,13 @@ class Tracker:
         return mean_latency, throughput_recs
 
 
+    def to_jacobian(y, x):
+        dy = np.array(y) - np.array(y[0:-1])
+        dx = np.array(x) - np.array(x[0:-1])
+        J = np.multiply(np.array(list(map(lambda t: [t], dy))), np.array(dx))
+        return lambda x : np.multiply(J, np.array(x))
+
+
     def to_metrics(self, requests, metrics, track_cadence):
         for i, consumer_record in zip(range(len(requests)), requests):
             val = float(consumer_record.value.decode("utf-8"))
@@ -37,7 +44,7 @@ class Tracker:
                 kf.update(msmts[-1], Hj=to_jacobian(msmts[-2:], latencies[-2:]))
             else:
                 # track latency/throughput
-                latencies.append(kf.predict(msmts[-1]))
+                latencies.append(kf.predict(msmts[-2:])[-1])
             print(f"Consumer_record = {consumer_record}")
             k = f"{consumer_record.topic()}-{consumer_record.partition()}"
             metrics[k] = np.array([1, latencies[-1]]) if k not in metrics else \
