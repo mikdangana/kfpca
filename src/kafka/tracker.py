@@ -62,7 +62,9 @@ class Tracker:
             #requests.sort(key=lambda rec : float(rec.value.decode("utf-8")))
             self.to_metrics(requests, metrics, mod)
         tuples = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
-        pickleconc(self.config.get("data.tracking.file").data, tuples)
+        pickleconc(self.config.get("data.tracker.file").data, tuples)
+        print("Tracker output in {}".format(
+              self.config.get("data.tracker.file").data))
         return list(tuples)
   
 

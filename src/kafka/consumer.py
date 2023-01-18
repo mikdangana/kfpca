@@ -53,7 +53,8 @@ class ActiveConsumer:
                 latency = ts_ms - float(consumer_record.value.decode("utf-8"))
                 metrics[k] = np.array([1, latency]) if k not in metrics else \
                              np.array([1, latency]) + metrics[k]
-        def means([size, total_latency]):
+        def means(metric):
+            [size, total_latency] = metric
             mean_latency = total_latency / size
             throughput_recs = size / mean_latency
             print(f'mean_latency = {latency}, throughput = {throughput_recs}')

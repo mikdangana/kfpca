@@ -28,7 +28,8 @@ get_properties() {
   
     KAFKA_HOME=${CFG["kafka.home"]}
     export KAFKA_HOME=`echo $KAFKA_HOME | sed 's/\(.*\/\)/\1/'`;
-    export KAFKA_HEAP_OPTS="-Xmx512m"
+    export KAFKA_HEAP_OPTS="-Xmx64m"
+    #export ZK_SERVER_HEAP=512
     export CFG BASE=${SCRIPT//$BASE/}
     export NUM_BROKERS=${CFG["kafka.brokers"]}
     export QUEUE_REQ=${CFG["queued.max.requests"]}
@@ -57,9 +58,9 @@ setup_brokers() {
 	     cp -r $KAFKA_HOME "${KAFKA_HOME}_broker$i"
 	     mkdir -p /tmp/kafka-logs-$i
 	     sed -i 's/broker.id=0/broker.id='$(($i))'/' $CFG_FILE
-	     sed -i 's/#\(listeners=PLAINTEXT.*\)9092/\1'$((9092+$i))'/' $CFG_FILE
-	     sed -i 's/\(log.dirs=.*\)/\1-'$i'/' $CFG_FILE
-	     sed -i 's/\(zookeeper.connect=.*:\).*/\1'$((2181+$i))'/' $CFG_FILE
+	     sed -i 's/#\(listeners=PLAINTEXT.*\)9092/\1'$((9091+$i))'/' $CFG_FILE
+	     sed -i 's/\(log.dirs=.*\)/\/tmp\/kafka-logs-'$i'/' $CFG_FILE
+	     #sed -i 's/\(zookeeper.connect=.*:\).*/\1'$((2181+$i))'/' $CFG_FILE
 	     echo Set up broker ${KAFKA_HOME}_broker$i
 	 done
     #fi
@@ -68,12 +69,14 @@ setup_brokers() {
 
 launch_broker() {
     i=$1
+    echo; echo Launching broker $i...
     CFG_FILE=${KAFKA_HOME}_broker$i/config/server.properties
     sed -i 's/\(queued.max.requests*=\).*/\1'$QUEUE_REQ'/' $CFG_FILE
     ${KAFKA_HOME}_broker$i/bin/kafka-server-stop.sh 
     sleep $STARTUP_TS
     if $START; then
-        ${KAFKA_HOME}_broker$i/bin/kafka-server-start.sh $CFG_FILE
+        nohup ${KAFKA_HOME}_broker$i/bin/kafka-server-start.sh $CFG_FILE > \
+	    broker.log 2>&1 &
         sleep $STARTUP_TS
     fi
 }
@@ -81,20 +84,24 @@ launch_broker() {
 
 launch_brokers() {
     echo; echo Launching brokers...
+    echo start = $START, startup_ts = $STARTUP_TS
     ${KAFKA_HOME}/bin/zookeeper-server-stop.sh
     if $START; then
         sleep $STARTUP_TS
-        nohup ${KAFKA_HOME}/bin/zookeeper-server-start.sh $ZCFG > zoo.log 2>&1
+        nohup ${KAFKA_HOME}/bin/zookeeper-server-start.sh $ZCFG > zoo.log 2>&1 &
     fi
     for i in $(seq 1 $NUM_BROKERS); do
         launch_broker $i
     done
     if $START; then
       topic=${CFG["kafka.topics"]//,*/}
-      $KAFKA_HOME/bin/kafka-topics.sh --create --zookeeper localhost:2181 \
-        --replication-factor $NUM_BROKERS --partitions 10 --topic $topic
-      $KAFKA_HOME/bin/kafka-topics.sh --describe --topic $topic \
-        --zookeeper localhost:2181
+      nohup $KAFKA_HOME/bin/kafka-topics.sh --create \
+        --bootstrap-server localhost:9092 \ #--zookeeper localhost:2181 \
+        --replication-factor $NUM_BROKERS --partitions 10 --topic $topic \
+	> topics.log 2>&1 &
+      #$KAFKA_HOME/bin/kafka-topics.sh --describe --topic $topic \
+       # --bootstrap-server localhost:9092 
+        #--zookeeper localhost:2181
     fi
 }
 
@@ -108,11 +115,26 @@ launch_tracker() {
     fi
 }
 
+launch_producers_consumers() {
+    echo; echo Launching consumers...
+    kill -9 `cat ${BASE}consumer.pid`
+    kill -9 `cat ${BASE}producer.pid`
+    if $START; then
+        nohup python ${BASE}src/kafka/consumer.py >& consumer.log &
+	echo $! > ${BASE}consumer.pid
+        sleep $STARTUP_TS
+        nohup python ${BASE}src/kafka/producer.py >& producer.log &
+	echo $! > ${BASE}producer.pid
+    fi
+}
+
+
 #install_java
 get_opts $@
 get_properties
 setup_brokers
 launch_brokers
 launch_tracker
+launch_producers_consumers
 
 echo; echo $0 done.
