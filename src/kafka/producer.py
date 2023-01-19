@@ -3,6 +3,7 @@ from jproperties import Properties
 from kafka import KafkaProducer
 from kafka.structs import TopicPartition
 from datetime import datetime, timedelta
+from scipy.special import factorial
 import numpy as np
 import os, time
 
@@ -37,18 +38,19 @@ class PoissonProducer:
 
     def poisson_next_ms(self, t):
         plambda = float(self.config.get("poisson.lambda").data)
-        n = np.range(0, self.num_points)
-        prob = np.power(plambda*t,n)/np.math.factorial(n)*np.exp(-plambda*t)
-        return prob.argmax(axis=1)
+        n = np.arange(0, self.num_points)
+        prob = np.power(plambda*t,n)/factorial(n)*np.exp(-plambda*t)
+        #print(f"prob.argmax = {prob.argmax(axis=0)}")
+        return prob.argmax(axis=0)
 
 
-    def poisson_send(self, msg_bytes):
+    def poisson_send(self, t, msg_bytes):
         ts = self.poisson_next_ms(t)/self.num_points
         print(f'Sending message after {ts} seconds')
         time.sleep(ts)
-        self.producer.send(self.topic, msg_bytes)
+        future = self.producer.send(self.topic, msg_bytes)
         result = future.get(timeout=60)
-        self.producer.flash()
+        self.producer.flush()
 
 
 
@@ -60,5 +62,5 @@ if __name__ == "__main__":
         ts = datetime.now() - timedelta(minutes=60)
         # Convert to epoch milliseconds
         ts_ms = ts.timestamp()*1000.0
-        poisson.poisson_send(bytes(f'{ts_ms}', 'utf-8'))
+        poisson.poisson_send(t, bytes(f'{ts_ms}', 'utf-8'))
 

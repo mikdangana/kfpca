@@ -1,4 +1,15 @@
 #!/bin/sh
+#SBATCH --account=def-jacobsen
+#SBATCH --nodes=1
+#SBATCH --tasks-per-node=32                             # number of MPI processes
+#SBATCH --time=1:00:00                                  # time (DD-HH:MM)
+#SBATCH --job-name=jobkafka1
+#SBATCH --mem=20G
+#SBATCH --mail-user=michael.dangana@mail.utoronto.ca              # notification for job conditions
+#SBATCH --mail-type=BEGIN
+#SBATCH --mail-type=END
+#SBATCH --mail-type=FAIL
+ 
 
 declare -A CFG=()
 
@@ -17,10 +28,11 @@ get_opts() {
 
 get_properties() {
     echo; echo Retrieving properties...
-    SCRIPT=`readlink -f $0`
-    echo SCRIPT=$SCRIPT
-    BASE=src/kafka/$(basename -- $SCRIPT)
-    CFG_FILE="${SCRIPT//$BASE/}config/testbed.properties"
+    #SCRIPT=`readlink -f $0`
+    #echo SCRIPT=$SCRIPT
+    #BASE=src/kafka/$(basename -- $SCRIPT)
+    BASE=~/scratch/kfpca/
+    CFG_FILE="${BASE}config/testbed.properties"
     for x in `grep = $CFG_FILE`; do
         CFG["${x//=*/}"]="${x//*=/}"
     done
@@ -28,10 +40,9 @@ get_properties() {
   
     KAFKA_HOME=${CFG["kafka.home"]}
     export KAFKA_HOME=`echo $KAFKA_HOME | sed 's/\(.*\/\)/\1/'`;
-    export KAFKA_HEAP_OPTS="-Xmx64m"
+    #export KAFKA_HEAP_OPTS="-Xmx64m"
     #export ZK_SERVER_HEAP=512
-    export CFG BASE=${SCRIPT//$BASE/}
-    export NUM_BROKERS=${CFG["kafka.brokers"]}
+    export CFG BASE NUM_BROKERS=${CFG["kafka.brokers"]}
     export QUEUE_REQ=${CFG["queued.max.requests"]}
     export STARTUP_TS=${CFG["kafka.startup_time_sec"]}
     export ZCFG=${KAFKA_HOME}/config/zookeeper.properties
@@ -136,5 +147,6 @@ setup_brokers
 launch_brokers
 launch_tracker
 launch_producers_consumers
+sleep 120
 
-echo; echo $0 done.
+echo; echo $0 done, output in ${CFG["data.tracker.file"]}.

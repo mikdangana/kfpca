@@ -35,6 +35,7 @@ class Tracker:
 
 
     def to_metrics(self, requests, metrics, track_cadence):
+        msmts = []
         for i, consumer_record in zip(range(len(requests)), requests):
             val = float(consumer_record.value.decode("utf-8"))
             msmts.append(val)
@@ -56,13 +57,13 @@ class Tracker:
         metrics, msmts, latencies = {}, [], []
         ts = datetime.now() - timedelta(minutes=60)
         ts_ms = ts.timestamp()*1000.0
-        kf_update_rate = float(self.config.get("kf.update.rate").data)
-        mod = 0 if kf_update_rate<=0 else 1/kf_update_rate
+        update_rate = float(self.config.get("tracker.update.rate").data)
+        mod = 0 if update_rate<=0 else 1/update_rate
         for topic_data, requests in records.items():
             #requests.sort(key=lambda rec : float(rec.value.decode("utf-8")))
             self.to_metrics(requests, metrics, mod)
         tuples = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
-        pickleconc(self.config.get("data.tracker.file").data, tuples)
+        pickleconc(self.config.get("data.tracker.file").data, list(tuples))
         print("Tracker output in {}".format(
               self.config.get("data.tracker.file").data))
         return list(tuples)
@@ -103,16 +104,16 @@ class Tracker:
 
     def process(self, records):
           for topic, partition, latency, throughput in \
-                    get_latency_throughputs(records):
+                    self.track_latency_throughputs(records):
               print("topic={topic}, partition={partition}, " \
                     "latency={latency}, throughput={throughput}") 
               if latency > max_latency or throughput < min_throughput:
-                if notself.is_scaled:
+                if not self.is_scaled:
                     # scale up broker queue size
-                    scale_broker(topic, partition)
+                    self.scale_broker(topic, partition)
               elif self.is_scaled:
                 # scale down broker queue size
-                scale_broker(topic, partition, False)
+                self.scale_broker(topic, partition, False)
 
 
 tracker = Tracker()

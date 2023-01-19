@@ -2,6 +2,8 @@ from datetime import datetime
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
 from datetime import datetime, timedelta
+from producer import *
+from tracker import *
 import os, re, requests
 import numpy as np
 import subprocess as sp
@@ -14,32 +16,11 @@ class ActiveConsumer:
     consumer = None
 
     def __init__(self):
-        self.config = PoissonProducer.load_config()
-        self.topic = self.config.get("kafka.topics").split(",")[0]
-        bootstrap_servers = self.config.get("kafka.endpoints").split(",")
+        self.config = PoissonProducer.load_configs()
+        self.topic = self.config.get("kafka.topics").data.split(",")[0]
+        bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
         self.consumer = KafkaConsumer(
             self.topic, bootstrap_servers=bootstrap_servers)
-
-
-    def setup_listener(self):
-        # Timestamp to look for events
-        # Look for events created from 60 minutes ago
-        ts = datetime.now() - timedelta(minutes=60)
-        # Convert to epoch milliseconds
-        ts_milliseconds = ts.timestamp()*1000.0
-
-        print(f'Looking for offsets of : {ts} ({ts_milliseconds})')
-
-        # We only retrieve from partition 0 for this example
-        # as there is only one partition created for the topic
-        # To find out all partitions, partitions_for_topic can be used.
-        topic_partition_0 = TopicPartition(topic, 0)
-        timestamps = {topic_partition_0: ts_milliseconds}
-        offsets = consumer.offsets_for_times(timestamps)
-        offset_p0 = offsets[topic_partition_0]
-        print(f"offsets = {offsets}, offset_p0 = {offset_p0}")
-
-        self.consumer.seek(partition=topic_partition_0, offset=offset_p0.offset)
 
 
     def get_latency_throughputs(self, records):
@@ -63,15 +44,38 @@ class ActiveConsumer:
         return list(tuples)
 
 
+    def setup_listener(self):
+        # Timestamp to look for events
+        # Look for events created from 60 minutes ago
+        ts = datetime.now() - timedelta(minutes=60)
+        # Convert to epoch milliseconds
+        ts_milliseconds = ts.timestamp()*1000.0
+
+        print(f'Looking for offsets of : {ts} ({ts_milliseconds})')
+
+        # We only retrieve from partition 0 for this example
+        # as there is only one partition created for the topic
+        # To find out all partitions, partitions_for_topic can be used.
+        topic_partition_0 = TopicPartition(self.topic, 0)
+        timestamps = {topic_partition_0: ts_milliseconds}
+        offsets = self.consumer.offsets_for_times(timestamps)
+        offset_p0 = offsets[topic_partition_0]
+        offset = 0 if offset_p0 is None else offset_p0.offset
+        print(f"offsets = {offsets}, offset_p0 = {offset_p0}")
+
+        self.consumer.seek(partition=topic_partition_0, offset=offset)
+
+
     def listen(self):
         self.setup_listener()
-        self.max_latency = float(self.config.get("max_latency"))
-        self.min_throughput = float(self.config.get("min_throughput"))
+        self.max_latency = float(self.config.get("max_latency").data)
+        self.min_throughput = float(self.config.get("min_throughput").data)
         while True:
             print('polling...')
             records = self.consumer.poll(timeout_ms=1000)
-            resp = requests.post("http://localhost:5000/track", data=records)
-            print(f'posted to tracker response = {resp.text}')
+            tracker.process(records)
+            #resp = requests.post("http://localhost:5000/track", data=records)
+            #print(f'posted to tracker response = {resp.text}')
 
 
 if __name__ == "__main__":
