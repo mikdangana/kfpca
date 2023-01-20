@@ -130,12 +130,13 @@ def pickleadd(filename, value):
 
 def pickledump(filename, value):
     try:
+        print(f"pickledump().value = {value}, to_csv = {pickle_dump_csv}")
         if pickle_dump_csv:
             #savetxt("{}.csv".format(filename), array(value))
             with open("{}.csv".format(filename), "w+") as cf:
                 for r in value:
-                    for i in range(len(r)):
-                       cf.write("{}{}".format(r[i], "," if i<len(r)-1 else "\n"))
+                  for i in range(len(r)):
+                     cf.write("{}{}".format(r[i], "," if i<len(r)-1 else "\n"))
                 cf.close()
         with open(filename, 'wb') as f:
             return pickle.dump(value, f)

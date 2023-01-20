@@ -145,7 +145,7 @@ get_opts $@
 get_properties
 setup_brokers
 launch_brokers
-launch_tracker
+#launch_tracker
 launch_producers_consumers
 sleep 120
 

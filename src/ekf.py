@@ -179,8 +179,8 @@ class PCAKalmanFilter:
 
     ekf = None
 
-    def __init__(self):
-        self.ekf = build_ekf([], [])
+    def __init__(self, nmsmt=None, dx=None):
+        self.ekf = build_ekf([], [], nmsmt, dx)
 
 
     def update(self, *args, **kwargs):

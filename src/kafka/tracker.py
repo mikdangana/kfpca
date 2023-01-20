@@ -16,18 +16,20 @@ class Tracker:
 
     def __init__(self):
         self.config = PoissonProducer.load_configs()
-        self.kf = PCAKalmanFilter()
+        self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2)
+        pickledump(self.config.get("data.tracker.file").data, 
+                   [["TOPIC", "PARTITION", "MEAN LATENCY", "MEAN THROUGHPUT"]])
 
 
     def means(self, metrics):
         size, total_latency = metrics
         mean_latency = total_latency / size
         throughput_recs = size / mean_latency
-        print(f'mean_latency = {latency}, throughput = {throughput_recs}')
-        return mean_latency, throughput_recs
+        print(f'mean_latency = {mean_latency}, throughput = {throughput_recs}')
+        return [mean_latency, throughput_recs]
 
 
-    def to_jacobian(y, x):
+    def to_jacobian(self, y, x):
         dy = np.array(y) - np.array(y[0:-1])
         dx = np.array(x) - np.array(x[0:-1])
         J = np.multiply(np.array(list(map(lambda t: [t], dy))), np.array(dx))
@@ -35,34 +37,39 @@ class Tracker:
 
 
     def to_metrics(self, requests, metrics, track_cadence):
-        msmts = []
+        msmts, latencies = [], []
+        ts = datetime.now() - timedelta(minutes=60)
+        ts_ms = ts.timestamp()*1000.0
+        print(f"to_metrics.requests = {requests}, len = {len(requests)}")
         for i, consumer_record in zip(range(len(requests)), requests):
+            print(f"to_metrics.i = {i}, req = {consumer_record}")
             val = float(consumer_record.value.decode("utf-8"))
             msmts.append(val)
-            if i % track_cadence < 1 and len(msmts) and len(msmts[0]) > 1:
+            if i % track_cadence < 1 and len(msmts) > 0:
                 # compute jacobian
                 latencies.append(ts_ms - val)
-                kf.update(msmts[-1], Hj=to_jacobian(msmts[-2:], latencies[-2:]))
+                self.kf.update(msmts[-1], 
+                               Hj=self.to_jacobian(msmts[-2:], latencies[-2:]))
             else:
                 # track latency/throughput
-                latencies.append(kf.predict(msmts[-2:])[-1])
+                latencies.append(self.kf.predict(msmts[-2:])[-1])
             print(f"Consumer_record = {consumer_record}")
             k = f"{consumer_record.topic()}-{consumer_record.partition()}"
             metrics[k] = np.array([1, latencies[-1]]) if k not in metrics else \
                          np.array([1, latencies[-1]]) + metrics[k]
-            return metrics
+        return metrics
 
 
     def track_latency_throughputs(self, records):
-        metrics, msmts, latencies = {}, [], []
-        ts = datetime.now() - timedelta(minutes=60)
-        ts_ms = ts.timestamp()*1000.0
+        metrics = {}
         update_rate = float(self.config.get("tracker.update.rate").data)
         mod = 0 if update_rate<=0 else 1/update_rate
         for topic_data, requests in records.items():
+            print(f"track.topic = {topic_data}, requests = {requests}")
             #requests.sort(key=lambda rec : float(rec.value.decode("utf-8")))
             self.to_metrics(requests, metrics, mod)
-        tuples = map(lambda i: i[0].split("-") + means(i[1]), metrics.items())
+        tuples = map(lambda i: i[0].split("-") + self.means(i[1]), 
+                     metrics.items())
         pickleconc(self.config.get("data.tracker.file").data, list(tuples))
         print("Tracker output in {}".format(
               self.config.get("data.tracker.file").data))
@@ -129,3 +136,24 @@ def home():
 def track_requests():
     app.logger.info("Track requests = %s", request.data)
     tracker.process(request.form('records'))
+
+
+class ConsumerRecord:
+    key = "k"
+    value = "0".encode(encoding='utf-8')
+
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value.encode(encoding='utf-8')
+
+    def topic(self):
+        return "topic1"
+
+    def partition(self):
+        return "partition1"
+
+        
+if __name__ == "__main__":
+    print("tracker.process = {}".format(
+        tracker.process(
+             {"topic1": [ConsumerRecord(f"k{i}", f"{i}") for i in range(3)]})))
