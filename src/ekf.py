@@ -95,8 +95,9 @@ def read2d(coeffs, width, start, end):
 # Build and update an EKF using the provided measurement data
 def build_ekf(coeffs, z_data, linear_consts=None, nmsmt = n_msmt, dx =dimx): 
     global n_msmt
-    global dimx
+    global dim
     (dimx, n_msmt) = (dx, nmsmt)
+    logger.info(f"build_ekf().dimx = {dimx}, dx = {dx}, n_msmt = {n_msmt}")
     if kf_type == "UKF":
         ekf = build_unscented_ekf()
     elif kf_type == "KF":
@@ -154,7 +155,8 @@ def update_ekf(ekf, z_data, R=None, m_c = None, Hj=None, H=None):
     for i,z in zip(range(len(z_data)), z_data):
         z = reshape(z, (array(z).size, 1))
         logger.info("z = " + str((len(z), z.size, array(z).shape)))
-        h = lambda x: H(x) if H else m_c[0]*x if m_c else x
+        def h(x):
+            return H(x) if H else m_c[0]*x if m_c else x
         def hjacobian(x):
             m = m_c[0] if m_c else 1
             return Hj(x) if Hj else m * identity(len(x)) 
@@ -180,16 +182,16 @@ class PCAKalmanFilter:
     ekf = None
 
     def __init__(self, nmsmt=None, dx=None):
-        self.ekf = build_ekf([], [], nmsmt, dx)
+        self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx)[0]
 
 
     def update(self, *args, **kwargs):
-        _, priors = update_ekf(self.ekf, args, kwargs)
+        _, priors = update_ekf(self.ekf, args, **kwargs)
         return priors
 
 
     def predict(self, *args, **kwargs):
-        _, priors = update_ekf(self.ekf, args, kwargs)
+        _, priors = update_ekf(self.ekf, args, **kwargs)
         return priors
 
 
