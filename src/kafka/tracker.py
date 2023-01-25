@@ -67,7 +67,7 @@ class Tracker:
         for i, consumer_record in zip(range(n), requests):
             val = float(consumer_record.value.decode("utf-8"))
             t0 = val if t0 is None else t0
-            msmts.append(self.kf.normalize(val - t0))
+            msmts.append(self.kf.pca_normalize(val - t0))
             if i % track_cadence < 1 or len(msmts) == 3:
                 # compute jacobian, Hx, and normalized throughput 
                 latencies.append([ts_ms - val, (n-i)*1000*100000/(ts_ms-val)])
@@ -155,11 +155,11 @@ class Tracker:
               if latency > max_latency or throughput < min_throughput:
                 if not self.is_scaled:
                     # scale up broker queue size
-                    #self.scale_broker(topic, partition)
+                    self.scale_broker(topic, partition)
                     print("scale_up")
               elif self.is_scaled:
                 # scale down broker queue size
-                #self.scale_broker(topic, partition, False)
+                self.scale_broker(topic, partition, False)
                 print("scale_down")
 
 

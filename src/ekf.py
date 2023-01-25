@@ -199,7 +199,7 @@ class PCAKalmanFilter:
         return priors
 
     
-    def normalize(self, msmt):
+    def pca_normalize(self, msmt):
         n = self.n_components
         self.msmts.append(msmt)
         values = [0 for i in range(n*n-len(self.msmts))] + self.msmts
@@ -211,7 +211,7 @@ class PCAKalmanFilter:
         scores = pca.transform(np.array(values[-n*n:]).reshape(n,n))
         #print(f"normalize().scores = {scores}")
         pca_components = [np.zeros((1,n))[0] if s<1 else v for s,v in \
-            zip(pca.explained_variance_, pca.components_)] # denoising
+            zip(pca.explained_variance_, pca.components_)] # noise reduction
         #print(f"normalize().pca_components = {pca_components}")
         msmt_hat = np.dot(scores[:,:n], pca_components)
         msmt_hat += mu
