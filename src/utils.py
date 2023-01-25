@@ -177,6 +177,12 @@ def sublist(lst, ids):
     return [v for i,v in filter(lambda v:v[0] in ids, zip(range(len(lst)),lst))]
 
 
+def getpca_raw(n_comp, y): 
+    pca = PCA(n_components=n_comp)
+    pca.fit(array(y).T)
+    return pca
+
+
 def getpca(n_comp, y): 
     global pca
     pca = PCA(n_components=n_comp)

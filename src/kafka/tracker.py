@@ -65,10 +65,9 @@ class Tracker:
         ts_ms, t0 = datetime.now().timestamp()*1000.0, None
         print(f"to_metrics.requests = {requests}, len = {len(requests)}")
         for i, consumer_record in zip(range(n), requests):
-            #print(f"to_metrics.i = {i}, req = {consumer_record}")
             val = float(consumer_record.value.decode("utf-8"))
             t0 = val if t0 is None else t0
-            msmts.append(val - t0)
+            msmts.append(self.kf.normalize(val - t0))
             if i % track_cadence < 1 or len(msmts) == 3:
                 # compute jacobian, Hx, and normalized throughput 
                 latencies.append([ts_ms - val, (n-i)*1000*100000/(ts_ms-val)])
@@ -78,14 +77,13 @@ class Tracker:
                 print(f"to_metrics.ekf.x0 = {self.kf.ekf.x}, y={y}, x={x}")
                 hj, hx = self.Hj(y, x), self.Hx(y, x)
                 self.kf.update(msmts[-2:], Hj=hj, H=hx)
-                print(f"to_metrics.ekf.x1 = {self.kf.ekf.x}")
             else:
                 print(f"msmts[-2:] = {msmts[-2:]}, pred = {self.kf.ekf.x}, " \
                       f"prior={self.kf.ekf.x_prior}, latencies={latencies[-1]}")
                 # track latency/throughput
                 latencies.append(list(self.kf.predict([msmts[-1],msmts[-1]], 
                                        Hj=hj, H=hx)[-1][-1].T[0]))
-                print(f"to_metricks.ekf.x_prior = {self.kf.ekf.x_prior}")
+            print(f"to_metricks.ekf.x_prior = {self.kf.ekf.x_prior}")
             k = f"{consumer_record.topic()}-{consumer_record.partition()}"
             metrics[k] = [latencies[-1]] if k not in metrics else \
                          metrics[k] + [latencies[-1]]

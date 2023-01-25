@@ -3,7 +3,7 @@ from lstm import Lstm
 from utils import *
 from plot import *
 import config as cfg
-import math
+import math, numpy as np
 import yaml, logging, logging.handlers
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -180,9 +180,13 @@ def update_ekf(ekf, z_data, R=None, m_c = None, Hj=None, H=None):
 class PCAKalmanFilter:
 
     ekf = None
+    msmts = []
+    n_components = None
 
-    def __init__(self, nmsmt=None, dx=None):
+    def __init__(self, nmsmt=None, dx=None, n_components=4):
         self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx)[0]
+        self.n_components = n_components
+        self.msmts = [0 for i in range(self.n_components)]
 
 
     def update(self, *args, **kwargs):
@@ -193,6 +197,26 @@ class PCAKalmanFilter:
     def predict(self, *args, **kwargs):
         _, priors = update_ekf(self.ekf, args, **kwargs)
         return priors
+
+    
+    def normalize(self, msmt):
+        n = self.n_components
+        self.msmts.append(msmt)
+        values = [0 for i in range(n*n-len(self.msmts))] + self.msmts
+        mu = np.mean(values[-n*n:], axis=0)
+        pca = getpca_raw(n, np.array(values[-n*n:]).reshape(n, n)) 
+
+        #print(f"normalize().pca = {pca}, evecs={pca.components_}, " \
+        #      f"evals={pca.explained_variance_}")
+        scores = pca.transform(np.array(values[-n*n:]).reshape(n,n))
+        #print(f"normalize().scores = {scores}")
+        pca_components = [np.zeros((1,n))[0] if s<1 else v for s,v in \
+            zip(pca.explained_variance_, pca.components_)] # denoising
+        #print(f"normalize().pca_components = {pca_components}")
+        msmt_hat = np.dot(scores[:,:n], pca_components)
+        msmt_hat += mu
+        print(f"normalize().msmt_hat = {msmt_hat}, msmts = {values}, mu={mu}")
+        return msmt_hat[-1][-1]
 
 
 
