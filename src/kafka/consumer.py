@@ -2,8 +2,8 @@ from datetime import datetime
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
 from datetime import datetime, timedelta
-from producer import *
-from tracker import *
+from producer import PoissonProducer
+from tracker import Tracker
 import os, re, requests
 import numpy as np
 import subprocess as sp
@@ -14,13 +14,16 @@ class ActiveConsumer:
     config = None
     topic = None
     consumer = None
+    tracker = Tracker()
 
     def __init__(self):
         self.config = PoissonProducer.load_configs()
         self.topic = self.config.get("kafka.topics").data.split(",")[0]
         bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
+        print(f"topic = {self.topic}, kafka.srv = {bootstrap_servers}")
         self.consumer = KafkaConsumer(
             self.topic, bootstrap_servers=bootstrap_servers)
+        print(f"Init done")
 
 
     def get_latency_throughputs(self, records):
@@ -71,10 +74,12 @@ class ActiveConsumer:
         self.max_latency = float(self.config.get("max_latency").data)
         self.min_throughput = float(self.config.get("min_throughput").data)
         hostname = re.sub(":.*", "", self.config.get("kafka.endpoints").data)
+        print(f"max_latency = {self.max_latency}, " \
+              f"throughput = {self.min_throughput}, host = {hostname}")
         while True:
             print('polling...')
             records = self.consumer.poll(timeout_ms=1000)
-            tracker.process(records)
+            self.tracker.process(records)
             #resp = requests.post(f"http://{hostname}:5000/track", data=records)
             #print(f'posted to tracker response = {resp.text}')
 

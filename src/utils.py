@@ -8,7 +8,7 @@ from numpy import ones, dot, divide, subtract, size, append, transpose
 from numpy import gradient, mean, std, outer, vstack, concatenate, savetxt
 from numpy.linalg import inv, lstsq
 from random import random
-from scipy import stats
+#from scipy import stats
 from sklearn.decomposition import PCA
 from time import time
 
