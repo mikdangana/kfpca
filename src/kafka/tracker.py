@@ -1,7 +1,7 @@
 from flask import Flask, request
 from producer import *
 from time import sleep
-import logging, sys, os
+import logging, sys, os, re
 sys.path.append(os.path.join(sys.path[0], '..'))
 from ekf import *
 from utils import *
@@ -111,7 +111,8 @@ class Tracker:
     def get_leader(self, topic, partition):
         topics_file = "topics.txt"
         kafkadir = self.config.get("kafka.home").data
-        os.system(f"{kafkadir}/bin/kafka-topics.sh --zookeeper localhost:2181" \
+        host = re.sub(":.*", "", self.config.get("kafka.endpoints").data)
+        os.system(f"{kafkadir}/bin/kafka-topics.sh --zookeeper {host}:2181" \
                   f" --describe --topic {topic} > {topics_file}")
         ldr, lines = 0, open(topics_file, 'r').readlines()
         for line in lines:

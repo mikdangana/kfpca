@@ -28,11 +28,10 @@ get_opts() {
 
 get_properties() {
     echo; echo Retrieving properties...
-    #SCRIPT=`readlink -f $0`
-    #echo SCRIPT=$SCRIPT
-    #BASE=src/kafka/$(basename -- $SCRIPT)
     BASE=~/scratch/kfpca/
     CFG_FILE="${BASE}config/testbed.properties"
+    export HOST=`hostname`
+    sed -i 's/\(kafka.endpoints=\).*:/\1'$HOST':/g' $CFG_FILE
     for x in `grep = $CFG_FILE`; do
         CFG["${x//=*/}"]="${x//*=/}"
     done
@@ -107,22 +106,22 @@ launch_brokers() {
     if $START; then
       topic=${CFG["kafka.topics"]//,*/}
       nohup $KAFKA_HOME/bin/kafka-topics.sh --create \
-        --bootstrap-server localhost:9092 \ #--zookeeper localhost:2181 \
+        --bootstrap-server $HOST:9092 \ #--zookeeper $HOST:2181 \
         --replication-factor $NUM_BROKERS --partitions 10 --topic $topic \
 	> topics.log 2>&1 &
       #$KAFKA_HOME/bin/kafka-topics.sh --describe --topic $topic \
-       # --bootstrap-server localhost:9092 
-        #--zookeeper localhost:2181
+       # --bootstrap-server $HOST:9092 
+        #--zookeeper $HOST:2181
     fi
 }
 
 launch_tracker() {
     echo; echo Launching tracker... 
     export FLASK_APP=${BASE}src/kafka/tracker.py
-    kill -9 `cat ${BASE}flask.pid`
+    kill -9 `cat ${BASE}tracker.pid`
     if $START; then
         nohup python -m flask run >& nohup.out & 
-        echo $! > ${BASE}flask.pid
+        echo $! > ${BASE}tracker.pid
     fi
 }
 

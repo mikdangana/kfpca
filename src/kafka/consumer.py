@@ -70,11 +70,12 @@ class ActiveConsumer:
         self.setup_listener()
         self.max_latency = float(self.config.get("max_latency").data)
         self.min_throughput = float(self.config.get("min_throughput").data)
+        hostname = re.sub(":.*", "", self.config.get("kafka.endpoints").data)
         while True:
             print('polling...')
             records = self.consumer.poll(timeout_ms=1000)
             tracker.process(records)
-            #resp = requests.post("http://localhost:5000/track", data=records)
+            #resp = requests.post(f"http://{hostname}:5000/track", data=records)
             #print(f'posted to tracker response = {resp.text}')
 
 
