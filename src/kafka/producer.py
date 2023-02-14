@@ -12,6 +12,7 @@ class PoissonProducer:
 
     config = None
     num_points = 0.0
+    num_test_msg = 10000
     # Topic name
     topic = ""
     producer = None
@@ -28,8 +29,9 @@ class PoissonProducer:
 
 
     @staticmethod
-    def load_configs(path=os.path.join(os.path.dirname(__file__), '..',
-                                       '..', 'config', 'testbed.properties')):
+    def load_configs(path=os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..')),
+            'config', 'testbed.properties')):
         config = Properties()
         with open(path, 'rb') as config_file:
             config.load(config_file)
@@ -45,9 +47,9 @@ class PoissonProducer:
 
 
     def poisson_send(self, t, msg_bytes):
-        ts = self.poisson_next_ms(t)/self.num_points
+        ts = self.poisson_next_ms(self.num_test_msg-t)/self.num_points
         print(f'Sending message after {ts} seconds')
-        time.sleep(ts)
+        #time.sleep(ts)
         future = self.producer.send(self.topic, msg_bytes)
         result = future.get(timeout=60)
         self.producer.flush()
@@ -56,11 +58,11 @@ class PoissonProducer:
 
 if __name__ == "__main__":
 
-    poisson = PoissonProducer()
+    poissonProd = PoissonProducer()
 
-    for t in range(100):
+    for t in range(poissonProd.num_test_msg):
         ts = datetime.now() - timedelta(minutes=60)
         # Convert to epoch milliseconds
-        ts_ms = ts.timestamp()*1000.0
-        poisson.poisson_send(t, bytes(f'{ts_ms}', 'utf-8'))
+        ts_ms = ts.timestamp() #*1000.0
+        poissonProd.poisson_send(t, bytes(f'{ts_ms}', 'utf-8'))
 

@@ -28,9 +28,11 @@ get_opts() {
 
 get_properties() {
     echo; echo Retrieving properties...
-    BASE=~/scratch/kfpca/
+    BASE=`dirname "${BASH_SOURCE}"`/../../
+    echo BASE = $BASE
     CFG_FILE="${BASE}config/testbed.properties"
-    export HOST=`hostname`
+    export HOST=localhost 
+    #export HOST=`hostname`
     sed -i 's/\(kafka.endpoints=\).*:/\1'$HOST':/g' $CFG_FILE
     for x in `grep = $CFG_FILE`; do
         CFG["${x//=*/}"]="${x//*=/}"
@@ -63,15 +65,7 @@ setup_brokers() {
     echo NUM_BROKERS=$NUM_BROKERS, CFG_FILE=$CFG_FILE
     #sed -i 's/broker.id=0/broker.id=$i/' $CFG_FILE
     #if [$(($NUM_BROKERS)) -gt 1]; then
-	 for i in $(seq 1 $NUM_BROKERS); do
-             CFG_FILE=${KAFKA_HOME}_broker$i/config/server.properties
-	     cp -r $KAFKA_HOME "${KAFKA_HOME}_broker$i"
-	     mkdir -p /tmp/kafka-logs-$i
-	     sed -i 's/broker.id=0/broker.id='$(($i))'/' $CFG_FILE
-	     sed -i 's/#\(listeners=PLAINTEXT.*\)9092/\1'$((9091+$i))'/' $CFG_FILE
-	     sed -i 's/\(log.dirs=.*\)/\/tmp\/kafka-logs-'$i'/' $CFG_FILE
-	     #sed -i 's/\(zookeeper.connect=.*:\).*/\1'$((2181+$i))'/' $CFG_FILE
-	     echo Set up broker ${KAFKA_HOME}_broker$i
+         for i in $(seq 0 $(($NUM_BROKERS-1))); do
 	 done
     #fi
 }
@@ -85,8 +79,10 @@ launch_broker() {
     ${KAFKA_HOME}_broker$i/bin/kafka-server-stop.sh 
     sleep $STARTUP_TS
     if $START; then
-        nohup ${KAFKA_HOME}_broker$i/bin/kafka-server-start.sh $CFG_FILE > \
-	    broker.log 2>&1 &
+        echo "nohup ${KAFKA_HOME}_broker$i/bin/kafka-server-start.sh $CFG_FILE 1>broker$i.log 2>>broker$i.log &"
+	    
+        nohup ${KAFKA_HOME}_broker$i/bin/kafka-server-start.sh $CFG_FILE \
+	    1>broker$i.log 2>>broker$i.log &
         sleep $STARTUP_TS
     fi
 }
@@ -100,7 +96,9 @@ launch_brokers() {
         sleep $STARTUP_TS
         nohup ${KAFKA_HOME}/bin/zookeeper-server-start.sh $ZCFG > zoo.log 2>&1 &
     fi
-    for i in $(seq 1 $NUM_BROKERS); do
+    broker_logs=${CFG["kafka.broker.logdir"]//,*/}
+    rm -fr ${broker_logs}
+    for i in $(seq 0 $(($NUM_BROKERS-1))); do
         launch_broker $i
     done
     if $START; then
@@ -115,20 +113,31 @@ launch_brokers() {
     fi
 }
 
+killpid() {
+    PID=$1
+    echo `ps aux | grep $PID`
+    if  [[ `ps aux | grep $PID` =~ "$PID" ]] ; then
+        kill -9 $PID
+	echo killed pid $PID
+    fi
+}
+
 launch_tracker() {
     echo; echo Launching tracker... 
     export FLASK_APP=${BASE}src/kafka/tracker.py
-    kill -9 `cat ${BASE}tracker.pid`
+    killpid `cat ${BASE}tracker.pid`
     if $START; then
-        nohup python -m flask run >& nohup.out & 
+	rm ${BASE}tracker.log
+        nohup python -m flask run >& ${BASE}tracker.log & 
         echo $! > ${BASE}tracker.pid
+	sleep 20
     fi
 }
 
 launch_producers_consumers() {
     echo; echo Launching consumers...
-    kill -9 `cat ${BASE}consumer.pid`
-    kill -9 `cat ${BASE}producer.pid`
+    killpid `cat ${BASE}consumer.pid`
+    killpid `cat ${BASE}producer.pid`
     if $START; then
         nohup python ${BASE}src/kafka/consumer.py >& consumer.log &
 	echo $! > ${BASE}consumer.pid
@@ -146,6 +155,6 @@ setup_brokers
 launch_brokers
 #launch_tracker
 launch_producers_consumers
-sleep 120
+sleep 300
 
 echo; echo $0 done, output in ${CFG["data.tracker.file"]}.
