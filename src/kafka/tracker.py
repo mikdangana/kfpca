@@ -19,7 +19,7 @@ class Tracker:
     config = None
     is_scaled = False
     kf = None
-    px, py = None, None
+    px, py, Jprev = None, None, None
     t0 = None
     count = 0
 
@@ -42,7 +42,9 @@ class Tracker:
     def to_jacobian(self, y, x):
         dy = np.subtract(np.array([y[-1],y[-1]]), np.array([y[-2], y[-2]]))
         dx = np.subtract(np.array(x[-1]), np.array(x[-2]))
-        J = np.array([[dy[r]/dx[c] for c in [0,1]] for r in [0,1]])
+        J = self.Jprev if x[-1] == x[-2] else \
+            np.array([[dy[r]/dx[c] for c in [0,1]] for r in [0,1]]) 
+        self.Jprev = J
         print(f"to_jacobian.y={y}, x={x}, dy={dy}, dx={dx}, J={J}")
         return J
 
@@ -86,12 +88,12 @@ class Tracker:
                 y = self.pair(msmts, self.py) # self.pair(msmts, track_cadence)
                 self.px = latencies[-1]
                 self.py = msmts[-1]
-                print(f"to_metrics.ekf.x0 = {self.kf.ekf.x}, y={y}, x={x}")
+                #print(f"to_metrics.ekf.x0 = {self.kf.ekf.x}, y={y}, x={x}")
                 hj, hx = self.Hj(y, x), self.Hx(y, x)
                 self.kf.update(msmts[-2:], Hj=hj, H=hx)
             else:
-                print(f"msmts[-2:] = {msmts[-2:]}, " \
-                      f"prior={self.kf.ekf.x_prior}, latencies={latencies[-1]}")
+                #print(f"msmts[-2:] = {msmts[-2:]}, " \
+                #     f"prior={self.kf.ekf.x_prior}, latencies={latencies[-1]}")
                 # track latency/throughput
                 latencies.append(list(self.kf.predict([msmts[-2], msmts[-1]], 
                                        Hj=hj, H=hx)[-1][-1].T[0]))
@@ -115,7 +117,7 @@ class Tracker:
             #print(f"track_l_t.vals = {vals}")
             rows += [k.split("-") + v for v in vals]
         pickleconc(self.config.get("data.tracker.file").data, rows)
-        print("Tracker output in {}".format(
+        print("Tracker output for {} requests in {}".format(len(records),
               self.config.get("data.tracker.file").data))
         return rows
   
@@ -136,10 +138,11 @@ class Tracker:
 
 
     def scale_broker(self, topic, partition, scale_up=True):
-        ldr = self.get_leader(topic, partition)     
+        ldr = 0 #self.get_leader(topic, partition)     
         kafka_home = self.config.get("kafka.home").data
         sleep_ts = float(self.config.get("kafka.startup_time_sec").data)
         brokerhome = os.path.abspath(f"{kafka_home}_broker{ldr}")
+        setupscript = os.path.join(os.path.dirname(__file__), "setup.sh")
         cfg_file = os.path.join(brokerhome, 'config', 'server.properties')
         cparam = "socket.receive.buffer.bytes"
         delta = 10
@@ -147,17 +150,42 @@ class Tracker:
         q_sz = int(PoissonProducer.load_configs(cfg_file).get(cparam).data)
                                     
         q_sz += delta if scale_up else (-delta if q_sz > delta else 0)
-        system(f"sed -i 's/\("+cparam+"*=\).*/\\1"+str(q_sz)+"/' "+cfg_file)
+        #system(f"sed -i 's/\("+cparam+"*=\).*/\\1"+str(q_sz)+"/' "+cfg_file)
         #system(os.path.join(brokerhome, "bin", "kafka-server-stop.sh"))
+        for i in range(1):
+            system(f"{setupscript} --addbroker")
                                
-        sleep(sleep_ts)
-        system(os.path.join(brokerhome, "bin", "kafka-server-start.sh") +
-                  os.path.join(f" {brokerhome}", "config", "server.properties"))
+        #sleep(sleep_ts)
+        #system(os.path.join(brokerhome, "bin", "kafka-server-start.sh") +
+        #         os.path.join(f" {brokerhome}", "config", "server.properties"))
                                
-        sleep(sleep_ts)
+        #sleep(sleep_ts)
         self.is_scaled = scale_up
         return self.is_scaled
 
+
+    @staticmethod
+    def copy_column(col, src, dest):
+        srcdata = np.loadtxt(src, delimiter=",", dtype=str)
+        destdata = np.loadtxt(dest, delimiter=",", dtype=str)
+        if len(destdata.shape) < 2:
+            print("copy_col() malformed input {srcdata.shape} {destdata.shape}")
+            return None
+        v = srcdata[:, int(col)][-1]
+        rows,cols = max(len(destdata), len(srcdata)), len(destdata[0])
+        print(f"copy_col().srcdata.len={len(srcdata)} {len(srcdata[0])} "\
+                f"dest={len(destdata)} {len(destdata[0])}")
+        rowext = [destdata[-1] for i in range(len(srcdata)-len(destdata))]
+        srccol = [srcdata[:,int(col)]] + \
+                [v for i in range(len(destdata)-len(srcdata))]
+        destdata = np.append(
+            np.append(destdata, rowext).reshape((rows,cols)).T,
+            srccol).reshape((cols+1, rows)).T
+        destdata[0][-1] = f"{destdata[0][-1]} " \
+                          f"{len(destdata[0]) - len(srcdata[0])}"
+        print(f"copy_col().after.src = {srcdata[0:2]}, dst = {destdata[0:2]}")
+        dest = dest[0:len(dest)-4]
+        return savecsv(dest, destdata)
 
 
     def process(self, records):
@@ -171,7 +199,7 @@ class Tracker:
               if latency > max_latency or throughput < min_throughput:
                 if not self.is_scaled:
                     # scale up broker queue size
-                    self.scale_broker(topic, partition)
+                    self.is_scaled = self.scale_broker(topic, partition)
                     print(f"scale_up count = {self.count}")
               elif self.is_scaled:
                 # scale down broker queue size
@@ -179,7 +207,6 @@ class Tracker:
                 print(f"scale_down count = {self.count}")
 
 
-tracker = Tracker()
 
 @app.route("/")
 def home():
@@ -217,6 +244,12 @@ class ConsumerRecord:
 
         
 if __name__ == "__main__":
+  if "--copycolumn" in sys.argv:
+    #python ${BASE}src/kafka/tracker.py --copycolumn 2 ${CSV} ${CSV}all.csv
+    col, src, dest = sys.argv[sys.argv.index("--copycolumn")+1:]
+    Tracker.copy_column(col, src, dest)
+  else:
+    tracker = Tracker()
     def get_ts(i):
         return (datetime.now() - timedelta(seconds=math.exp(10-i/20))). \
                timestamp()

@@ -12,7 +12,7 @@ class PoissonProducer:
 
     config = None
     num_points = 0.0
-    num_test_msg = 10000
+    num_test_msg = 30000
     # Topic name
     topic = ""
     producer = None
@@ -48,7 +48,7 @@ class PoissonProducer:
 
     def poisson_send(self, t, msg_bytes):
         ts = self.poisson_next_ms(self.num_test_msg-t)/self.num_points
-        print(f'Sending message after {ts} seconds')
+        print(f'Sending message {msg_bytes.decode("UTF-8")} after {ts} seconds')
         #time.sleep(ts)
         future = self.producer.send(self.topic, msg_bytes)
         result = future.get(timeout=60)

@@ -215,7 +215,7 @@ class PCAKalmanFilter:
         #print(f"normalize().pca_components = {pca_components}")
         msmt_hat = np.dot(scores[:,:n], pca_components)
         msmt_hat += mu
-        print(f"normalize().msmt_hat = {msmt_hat}, msmts = {values}, mu={mu}")
+        #print(f"normalize().msmt_hat = {msmt_hat}, msmts = {values}, mu={mu}")
         return msmt_hat[-1][-1]
 
 
