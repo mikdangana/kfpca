@@ -17,7 +17,7 @@ from datetime import *
 
 
 logger = logging.getLogger("Kalman_Filter")
-kf_type = "EKF"
+kf_type = "UKF"
 
 
 # Test the accuracy of an EKF using the provide measurement data
@@ -93,13 +93,14 @@ def read2d(coeffs, width, start, end):
 
 
 # Build and update an EKF using the provided measurement data
-def build_ekf(coeffs, z_data, linear_consts=None, nmsmt = n_msmt, dx =dimx): 
+def build_ekf(coeffs, z_data, linear_consts=None, nmsmt = n_msmt, dx =dimx, \
+              hx=None): 
     global n_msmt
     global dim
     (dimx, n_msmt) = (dx, nmsmt)
     logger.info(f"build_ekf().dimx = {dimx}, dx = {dx}, n_msmt = {n_msmt}")
     if kf_type == "UKF":
-        ekf = build_unscented_ekf()
+        ekf = build_unscented_ekf(hx)
     elif kf_type == "KF":
         ekf = KalmanFilter(dim_x=4,dim_z=2)
         ekf.x = eye(4)
@@ -113,9 +114,9 @@ def build_ekf(coeffs, z_data, linear_consts=None, nmsmt = n_msmt, dx =dimx):
     return update_ekf(ekf, z_data)
 
 
-def build_unscented_ekf():
+def build_unscented_ekf(hx=None):
         #pts = MerweScaledSigmaPoints(4, alpha=.1, beta=2., kappa=-1)
-        pts = JulierSigmaPoints(4)
+        pts = JulierSigmaPoints(2)
         def fx(x, dt):
             # state transition function - predict next state based
             # on constant velocity model x = vt + x_0
@@ -123,14 +124,18 @@ def build_unscented_ekf():
                           [0, 1, 0, 0],
                           [0, 0, 1, dt],
                           [0, 0, 0, 1]], dtype=float)
+            F = np.array([[1, 0], 
+                          [0, 1]], dtype=float)
             return np.dot(F, x)
    
         def h(x):
             # measurement function - convert state into a measurement
             # where measurements are [x_pos, y_pos]
-            return np.array([x[0], x[2]])
+            #return np.array([x[0], x[2]])
+            return np.array([x[0], x[1]]) if hx is None else hx(x)
    
-        ekf = UnscentedKalmanFilter(dim_x=4,dim_z=2,dt=.1,hx=h,fx=fx,points=pts)
+        #ekf =UnscentedKalmanFilter(dim_x=4,dim_z=2,dt=.1,hx=h,fx=fx,points=pts)
+        ekf = UnscentedKalmanFilter(dim_x=2,dim_z=2,dt=.1,hx=h,fx=fx,points=pts)
         return ekf
 
 
@@ -166,7 +171,7 @@ def update_ekf(ekf, z_data, R=None, m_c = None, Hj=None, H=None):
             priors[j].append(ekf.x_prior)
             if kf_type == "UKF":
                 z = [z[0][0], z[1][0]]
-                ekf.update(z)
+                ekf.update(z, R=R if len(shape(R)) else ekf.R, hx=h)
             elif kf_type == "KF":
                 z = [z[0][0], z[1][0]]
                 ekf.update(z)
@@ -183,8 +188,8 @@ class PCAKalmanFilter:
     msmts = []
     n_components = None
 
-    def __init__(self, nmsmt=None, dx=None, n_components=4):
-        self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx)[0]
+    def __init__(self, nmsmt=None, dx=None, n_components=4, H=None):
+        self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx, hx = H)[0]
         self.n_components = n_components
         self.msmts = [0 for i in range(self.n_components)]
 

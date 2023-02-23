@@ -18,10 +18,12 @@ class Tracker:
 
     config = None
     is_scaled = False
+    is_deterministic = False
     kf = None
     px, py, Jprev = None, None, None
     t0 = None
     count = 0
+    update_count = 0
 
     def __init__(self):
         self.config = PoissonProducer.load_configs()
@@ -57,17 +59,36 @@ class Tracker:
     def Hx(self, y, x):
         J = self.to_jacobian(y, x)
         def H(x1):
-            x1 = x1.T[0]
+            #x1 = x1.T[0]
             dx = np.subtract(np.array(x1), np.array(x[-1]))
-            Jx = np.matmul(J, np.subtract(np.array(x1), np.array(x[-1])))
+            Jx = np.matmul(J, np.array(dx))
             Hx = np.add(np.array(y[-2:]), Jx)
-            #print(f"H().x={x}, x1={x1}, Jx={Jx}, dx={dx}, Hx = {Hx}")
+            print(f"H().x={x}, y={y}, Jx={Jx}, dx={dx}, Hx = {Hx}")
             return Hx
         return H
 
 
     def pair(self, items, prev, defval=0):
         return [defval if prev is None else prev, items[-1]]
+
+    
+    def compute_latency(self, latencies, msmts, ts_ms, val):
+                # compute jacobian, Hx, and normalized throughput 
+                latencies.append([ts_ms - val, ts_ms-val])
+                if not self.is_deterministic:
+                    self.kf.ekf.x = np.array([[v] for v in latencies[-1]]) \
+                            if kf_type=="EKF" else np.array(latencies[-1]) # UKF
+                    x = self.pair(latencies, self.px, [0,0])
+                    y = self.pair(msmts, self.py) 
+                    self.px = latencies[-1]
+                    self.py = msmts[-1]
+                    hj, hx = self.Hj(y, x), self.Hx(y, x)
+                    if kf_type=="UKF" and self.update_count == 1:
+                        self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2, H=hx)
+                        self.kf.ekf.x = np.array(latencies[-1])
+                    self.kf.update(msmts[-2:], Hj=hj, H=hx)
+                    self.update_count += 1
+                    return hj, hx
 
 
     def to_metrics(self, requests, metrics, track_cadence):
@@ -78,27 +99,14 @@ class Tracker:
             val = float(consumer_record.value.decode("utf-8"))
             self.t0 = val if self.t0 is None else self.t0
             msmts.append(self.kf.pca_normalize(val - self.t0))
-            if i % track_cadence < 1 or len(msmts) == 3:
-                # compute jacobian, Hx, and normalized throughput 
-                latencies.append([ts_ms - val, ts_ms-val])
-                #latencies.append([ts_ms - val, (n-i)*10000*100000/(ts_ms-val)])
-                self.kf.ekf.x = np.array([[v] for v in latencies[-1]])
-                x = self.pair(latencies, self.px, [0,0])
-                #self.pair(latencies, track_cadence, [0,0])
-                y = self.pair(msmts, self.py) # self.pair(msmts, track_cadence)
-                self.px = latencies[-1]
-                self.py = msmts[-1]
-                #print(f"to_metrics.ekf.x0 = {self.kf.ekf.x}, y={y}, x={x}")
-                hj, hx = self.Hj(y, x), self.Hx(y, x)
-                self.kf.update(msmts[-2:], Hj=hj, H=hx)
+            if self.is_deterministic or i%track_cadence < 1 or len(msmts) == 3:
+                hj, hx = self.compute_latency(latencies, msmts, ts_ms, val)
             else:
-                #print(f"msmts[-2:] = {msmts[-2:]}, " \
-                #     f"prior={self.kf.ekf.x_prior}, latencies={latencies[-1]}")
-                # track latency/throughput
-                latencies.append(list(self.kf.predict([msmts[-2], msmts[-1]], 
-                                       Hj=hj, H=hx)[-1][-1].T[0]))
+                # predict latency/throughput
+                x = self.kf.predict([msmts[-2],msmts[-1]],Hj=hj,H=hx)[-1][-1].T
+                latencies.append(list(x[0] if kf_type=="EKF" else x)) # UKF
             k = f"{consumer_record.topic}-{consumer_record.partition}"
-            print(f"to_metricks.ekf.x_prior = {self.kf.ekf.x_prior}, k={k}")
+            print(f"to_metrics.ekf.x_prior = {self.kf.ekf.x_prior}, k={k}")
             metrics[k] = [latencies[-1]+msmts[-1:]] if k not in metrics else \
                     metrics[k] + [latencies[-1]+msmts[-1:]]
         return metrics
@@ -150,24 +158,17 @@ class Tracker:
         q_sz = int(PoissonProducer.load_configs(cfg_file).get(cparam).data)
                                     
         q_sz += delta if scale_up else (-delta if q_sz > delta else 0)
-        #system(f"sed -i 's/\("+cparam+"*=\).*/\\1"+str(q_sz)+"/' "+cfg_file)
-        #system(os.path.join(brokerhome, "bin", "kafka-server-stop.sh"))
         for i in range(1):
             system(f"{setupscript} --addbroker")
                                
-        #sleep(sleep_ts)
-        #system(os.path.join(brokerhome, "bin", "kafka-server-start.sh") +
-        #         os.path.join(f" {brokerhome}", "config", "server.properties"))
-                               
-        #sleep(sleep_ts)
         self.is_scaled = scale_up
         return self.is_scaled
 
 
     @staticmethod
     def copy_column(col, src, dest):
-        srcdata = np.loadtxt(src, delimiter=",", dtype=str)
-        destdata = np.loadtxt(dest, delimiter=",", dtype=str)
+        srcdata = np.genfromtxt(src, delimiter=",", dtype=str)
+        destdata = np.genfromtxt(dest, delimiter=",", dtype=str)
         if len(destdata.shape) < 2:
             print("copy_col() malformed input {srcdata.shape} {destdata.shape}")
             return None
@@ -188,7 +189,22 @@ class Tracker:
         return savecsv(dest, destdata)
 
 
-    def process(self, records):
+    @staticmethod
+    def get_steps(cols, src):
+        data = np.genfromtxt(src, delimiter=",", dtype=str).T
+        if len(data.shape) < 2:
+            print("get_steps() malformed input {data.shape}")
+            return None
+        steps = [list(map(lambda v: v[2], l))[0]
+                 for l in \
+                    [filter(lambda v: float(v[1])-float(v[0]) > 20,
+                            zip(data[c][1:],data[c][2:],range(len(data[c]))))\
+                  for c in [int(s) for s in cols]]]
+        print(f"get_steps().steps = {steps}")
+        return steps
+
+
+    def process(self, records, with_scaling=True):
           max_latency = float(self.config.get("max_latency").data)
           min_throughput = float(self.config.get("min_throughput").data)
           for topic, partition, latency, throughput, _ in \
@@ -199,7 +215,8 @@ class Tracker:
               if latency > max_latency or throughput < min_throughput:
                 if not self.is_scaled:
                     # scale up broker queue size
-                    self.is_scaled = self.scale_broker(topic, partition)
+                    self.is_scaled = not with_scaling or \
+                            self.scale_broker(topic, partition)
                     print(f"scale_up count = {self.count}")
               elif self.is_scaled:
                 # scale down broker queue size
@@ -248,6 +265,11 @@ if __name__ == "__main__":
     #python ${BASE}src/kafka/tracker.py --copycolumn 2 ${CSV} ${CSV}all.csv
     col, src, dest = sys.argv[sys.argv.index("--copycolumn")+1:]
     Tracker.copy_column(col, src, dest)
+  elif "--filtercolumns" in sys.argv:
+    #python ${BASE}src/kafka/tracker.py --filtercolumns 2,5 ${CSV}
+    cols, src = sys.argv[sys.argv.index("--filtercolumns")+1:]
+    print(f"src = {src}, cols = {cols}")
+    Tracker.get_steps(cols.split(","), src)
   else:
     tracker = Tracker()
     def get_ts(i):
@@ -257,5 +279,6 @@ if __name__ == "__main__":
         tracker.process(
             {"topic1": 
              [ConsumerRecord(f"k{i}", f"{get_ts(i)}", get_ts(i)) \
-                     for i in range(20)]})))
+                     for i in range(20)]},
+             False)))
                                       
