@@ -203,6 +203,30 @@ class Tracker:
         print(f"get_steps().steps = {steps}")
         return steps
 
+    @staticmethod
+    def residual_variance(cols, src, rng):
+        data = np.genfromtxt(src, delimiter=",", dtype=str)
+        if len(data.shape) < 2:
+            print("residual_variance() malformed input {data.shape}")
+            return None
+        variance, residuals = [], np.array([])
+        for col in cols:
+            print(f"col = {col}, head = {data[1:5,int(col)]}")
+            y = np.array([float(v) for v in data[rng[0]:rng[1], col]])
+            x = np.array(range(len(y)))
+            print(f"col = {col}, y = {y.shape}, x = {x.shape}")
+            A = np.vstack([x, np.ones(len(x))]).T
+            m, c  = np.linalg.lstsq(A, y, rcond=None)[0]
+            residual = y - (np.multiply(m, x) + c)
+            hdr = f"{data[0, col]} Residual"
+            residuals = np.append(residuals.T, np.append([hdr], residual)). \
+                           reshape((-1, len(residual)+1)).T
+            variance.append(np.var(residual))
+        savecsv(f"{src}residual", residuals)
+        print(f"residual_variance().variances = {variance}")
+        return variance 
+
+
 
     def process(self, records, with_scaling=True):
           max_latency = float(self.config.get("max_latency").data)
@@ -261,6 +285,7 @@ class ConsumerRecord:
 
         
 if __name__ == "__main__":
+  nums = lambda values : [int(v) for v in values]
   if "--copycolumn" in sys.argv:
     #python ${BASE}src/kafka/tracker.py --copycolumn 2 ${CSV} ${CSV}all.csv
     col, src, dest = sys.argv[sys.argv.index("--copycolumn")+1:]
@@ -270,6 +295,11 @@ if __name__ == "__main__":
     cols, src = sys.argv[sys.argv.index("--filtercolumns")+1:]
     print(f"src = {src}, cols = {cols}")
     Tracker.get_steps(cols.split(","), src)
+  elif "--columnvariance" in sys.argv:
+    #python ${BASE}src/kafka/tracker.py --columnvariance 2,5 ${CSV} 1:300001
+    cols, src, rng = sys.argv[sys.argv.index("--columnvariance")+1:]
+    print(f"src = {src}, cols = {cols}, range = {rng}")
+    Tracker.residual_variance(nums(cols.split(",")), src, nums(rng.split(":")))
   else:
     tracker = Tracker()
     def get_ts(i):
