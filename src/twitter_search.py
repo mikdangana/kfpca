@@ -1,5 +1,6 @@
 from searchtweets import load_credentials
-import requests, sys
+from print_utils import print_data
+import requests, sys, json
 
 
 
@@ -12,20 +13,28 @@ def tokens():
     return access_tok, access_secret, bearer_tok, api_key, api_secret
 
 
-def fetch_tweets():
+def fetch_recent():
     #url = "https://api.twitter.com/2/tweets/counts/all"
     #url = "https://api.twitter.com/2/tweets/search/recent"
     url = "https://api.twitter.com/2/tweets/counts/recent"
     #qparams = {'query': '(from:twitterdev -is:retweet) OR #twitterdev',
     #           'tweet.fields': 'author_id'}
-    qparams = {'query': '#Toronto'} #, 'tweet.fields': 'end,tweet_count'}
-    toks = tokens()
+    toks, csv_file = tokens(), 'tweets.csv'
     headers = { 'User-Agent': "v2RecentSearchPython",
                 'Authorization': f"Bearer {toks[2]}" }
-    data = { 'client_id': toks[3], 'grant_type': 'client_credentials' }
-    print(f"url = {url}, hdrs = {headers}, data = {data}")
+    #data = { 'client_id': toks[3], 'grant_type': 'client_credentials' }
+    qparams = { 'query': '#Ukraine', 'granularity': 'minute' }
+               #'start_time': '2019-03-05T00:00:00Z' }
+               #'end_time': '2019-03-06T00:00:00Z'} 
+    print(f"url = {url}, hdrs = {headers}, params = {qparams}")
     resp = requests.get(url, params=qparams, headers=headers)
-    print(f"resp = {resp.text}")
+    resp = json.loads(resp.text)
+    None if 'data' in resp else print(f"message = {resp}") 
+    data = [f"{d['start']},{d['end']},{d['tweet_count']}" \
+            for d in resp['data']] if 'data' in resp else []
+    print_data(data, csv_file)
+    print(f"Output: {csv_file}, resp.keys = {resp.keys()}, " \
+          f"meta = {resp['meta'] if 'meta' in resp else None}")
     return resp
 
 
@@ -63,4 +72,4 @@ if __name__ == "__main__":
         #post_tweet()
         print(f"refresh_token = {refresh_token()}")
     else:
-        fetch_tweets()
+        fetch_recent()
