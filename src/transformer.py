@@ -6,7 +6,7 @@ import pandas as pd
 from tensorflow import keras
 from tensorflow.keras import layers
 from datetime import datetime
-#from kfattention import MultiHeadedAttention
+from kf_attention import KfAttention
 
 
 def get_features():
@@ -23,22 +23,25 @@ def get_features():
         lambda d: (datetime.strptime(d, "%m/%d/%Y %H:%M") - d0).total_seconds())
     train_dataset['Tweet Count'] = train_dataset['Tweet Count'].transform(
         lambda c: int(c))
-    #print(f"end = {np.unique(train_dataset['End'])}")
-    #print(f"start = {np.unique(train_dataset['Start'])}")
     print(train_dataset.head())
 
     max_len, w = len(train_dataset), 25
-    #features = train_dataset.drop(['Tweet Count'], axis=1)
     features, d0 = train_dataset, train_dataset['Tweet Count'][0]
     pad = train_dataset['Tweet Count'][-10:].transform(lambda d: d0)
     features['Tweet Count'] = pd.concat((pad, train_dataset['Tweet Count'][0:-10]))
+    #features['Tweet Count 1'] = pd.concat((pad, train_dataset['Tweet Count'][0:-10]))
     target = train_dataset['Tweet Count']
+    #target['Start'] = train_dataset.loc[:, 'Tweet Count']
+    #target['End'] = train_dataset.loc[:, 'Tweet Count']
+    #print(f"target = {target.head()}")
     features = np.array(features) #[0:max_len]
     target = np.array(target) #.argsort() # converting counts to ranks: use 2 argsorts
     #target = target.argsort() # ranks 
     print(f"features.raw.shape = {features.shape}, target = {target}")
-    features = features.reshape((features.shape[0], features.shape[1], 1))    
-    target = np.array(target).reshape((target.shape[0], 1))
+    f = features.shape[1]
+    n = int(features.shape[0]/f)*f
+    features = features[0:n].reshape((int(n/f),features.shape[1],f)) 
+    target = np.array(target[0:n]).reshape((n, 1, 1))
     print(f"features = {features.shape}, target = {target.shape}")
     N = int(0.8*len(features))
     return features[0:N], target[0:N], features[N:], target[N:], features.shape[1]
@@ -61,7 +64,7 @@ def prepare():
     #x_train = x_train.reshape((x_train.shape[0], x_train.shape[1], 1))
     #x_test = x_test.reshape((x_test.shape[0], x_test.shape[1], 1))
 
-    n_classes = max(np.concatenate((y_train, y_test)))+1
+    n_classes = max(np.concatenate((y_train[:,0], y_test[:,0])))+1
 
     idx = np.random.permutation(len(x_train))
     x_train = x_train[idx]
@@ -76,8 +79,9 @@ def prepare():
 def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
     # Normalization and Attention
     x = layers.LayerNormalization(epsilon=1e-6)(inputs)
-    x = layers.MultiHeadAttention(
-        key_dim=head_size, num_heads=num_heads, dropout=dropout
+    x = KfAttention(
+        #key_dim=head_size, num_heads=num_heads, dropout=dropout
+        head_size, num_heads, dropout=dropout
     )(x, x)
     x = layers.Dropout(dropout)(x)
     res = x + inputs
@@ -103,20 +107,22 @@ def build_model(
 ):
     inputs = keras.Input(shape=input_shape)
     x = inputs
+    print(f"build_model().x = {x}, input_shape = {input_shape}")
     for _ in range(num_transformer_blocks):
         x = transformer_encoder(x, head_size, num_heads, ff_dim, dropout)
 
+    print(f"build_model().pool.x = {x}")
     x = layers.GlobalAveragePooling1D(data_format="channels_first")(x)
     for dim in mlp_units:
         x = layers.Dense(dim, activation="relu")(x)
         x = layers.Dropout(mlp_dropout)(x)
     outputs = layers.Dense(n_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs)
-    #return keras.Model(inputs, transformer_encoder1(inputs, head_size, num_heads, ff_dim, dropout))
 
 
 def train_eval(x_train, y_train, x_test, y_test, n_classes):
-  input_shape = x_train.shape[1:]
+  input_shape = x_train.shape[1:] #x_train[0:x_train.shape[1]].shape #x_train.shape[1:]
+  print(f"train_eval().input_shape = {input_shape}, xtrain.shape = {x_train.shape}")
 
   model = build_model(
     input_shape,
@@ -155,7 +161,7 @@ def train_eval(x_train, y_train, x_test, y_test, n_classes):
   #value = model.layers[0](x_test)
   #print(f"UnitTest: model = {model}, L = {len(model.layers)}, x_test = {x_test.shape}, attention = {value.shape}")
   for i in range(3): #len(model.layers)):
-      value = model.layers[i](value, value) if isinstance(model.layers[i], layers.MultiHeadAttention) else model.layers[i](value)
+      value = model.layers[i](value, value) if isinstance(model.layers[i], KfAttention) else model.layers[i](value)
       print(f"UnitTest: layer {i} = {value.shape}, type = {type(model.layers[i])}, value.T = {tf.transpose(value)}")
   print("UnitTest: done")
 
