@@ -9,7 +9,8 @@ from datetime import datetime
 from kf_attention import KfAttention
 
 
-def get_features():
+
+def get_dataset():
     dataset = os.path.join(os.path.dirname(__file__), "..", "data")
     print(f"file = {dataset}")
     train_dataset = pd.read_csv(os.path.join(dataset, "twitter_trace.csv"))
@@ -24,27 +25,29 @@ def get_features():
     train_dataset['Tweet Count'] = train_dataset['Tweet Count'].transform(
         lambda c: int(c))
     print(train_dataset.head())
+    return train_dataset
 
-    max_len, w = len(train_dataset), 25
+
+
+def get_features():
+    train_dataset = get_dataset()
+    max_len, w, h = len(train_dataset), 25, -10
     features, d0 = train_dataset, train_dataset['Tweet Count'][0]
-    pad = train_dataset['Tweet Count'][-10:].transform(lambda d: d0)
-    features['Tweet Count'] = pd.concat((pad, train_dataset['Tweet Count'][0:-10]))
-    #features['Tweet Count 1'] = pd.concat((pad, train_dataset['Tweet Count'][0:-10]))
+    pad = train_dataset['Tweet Count'][h:].transform(lambda d: d0)
+    features['Tweet Count'] = pd.concat((pad,train_dataset['Tweet Count'][0:h]))
     target = train_dataset['Tweet Count']
-    #target['Start'] = train_dataset.loc[:, 'Tweet Count']
-    #target['End'] = train_dataset.loc[:, 'Tweet Count']
-    #print(f"target = {target.head()}")
-    features = np.array(features) #[0:max_len]
-    target = np.array(target) #.argsort() # converting counts to ranks: use 2 argsorts
-    #target = target.argsort() # ranks 
+    features = np.array(features) 
+    target = np.array(target)
     print(f"features.raw.shape = {features.shape}, target = {target}")
-    f = features.shape[1]
-    n = int(features.shape[0]/f)*f
-    features = features[0:n].reshape((int(n/f),features.shape[1],f)) 
-    target = np.array(target[0:n]).reshape((n, 1, 1))
+    f, (f0, f1) = 2*features.shape[1], features.shape
+    n = int(int(f0*f1/(f**2))*(f**2)/f1)
+    n1d = int(n*f1/((f**2)))
+    print(f"features.n = {n}")
+    features = features[0:n].reshape((n1d, f, f)) 
+    target = np.array(target[n-n1d:n]).reshape((n1d, 1, 1))
     print(f"features = {features.shape}, target = {target.shape}")
     N = int(0.8*len(features))
-    return features[0:N], target[0:N], features[N:], target[N:], features.shape[1]
+    return features[0:N], target[0:N], features[N:], target[N:], f1
 
 
 def readucr(filename):
@@ -54,9 +57,7 @@ def readucr(filename):
     return x, y.astype(int)
 
 
-def prepare():
-    root_url = "https://raw.githubusercontent.com/hfawaz/cd-diagram/master/FordA/"
-
+def prepare_data():
     x_train, y_train, x_test, y_test, w = get_features()
     #x_train, y_train = readucr(root_url + "FordA_TRAIN.tsv")
     #x_test, y_test = readucr(root_url + "FordA_TEST.tsv")
@@ -121,8 +122,8 @@ def build_model(
 
 
 def train_eval(x_train, y_train, x_test, y_test, n_classes):
-  input_shape = x_train.shape[1:] #x_train[0:x_train.shape[1]].shape #x_train.shape[1:]
-  print(f"train_eval().input_shape = {input_shape}, xtrain.shape = {x_train.shape}")
+  input_shape = x_train.shape[1:] #x_train[0:x_train.shape[1]].shape 
+  print(f"train_eval().input_shape={input_shape}, xtrain.shape={x_train.shape}")
 
   model = build_model(
     input_shape,
@@ -149,23 +150,31 @@ def train_eval(x_train, y_train, x_test, y_test, n_classes):
     x_train,
     y_train,
     validation_split=0.2,
-    epochs=200,
+    epochs=300,
     batch_size=64,
     callbacks=callbacks
   )
 
   plot(history)
-  #model.evaluate(x_test, y_test, verbose=1)
+  model.evaluate(x_test, y_test, verbose=1)
 
-  value = x_test[0:20]
-  #value = model.layers[0](x_test)
-  #print(f"UnitTest: model = {model}, L = {len(model.layers)}, x_test = {x_test.shape}, attention = {value.shape}")
-  for i in range(3): #len(model.layers)):
-      value = model.layers[i](value, value) if isinstance(model.layers[i], KfAttention) else model.layers[i](value)
-      print(f"UnitTest: layer {i} = {value.shape}, type = {type(model.layers[i])}, value.T = {tf.transpose(value)}")
-  print("UnitTest: done")
+  get_layer(model, x_test[0:20], 3)
 
   return model
+
+
+
+def get_layer(model, inputs, depth=3):
+    print(f"get_layer().inputs = {inputs.shape}")
+    value, n_layers = inputs, 3
+    for i in range(depth): #len(model.layers)):
+        value = model.layers[i](value, value) \
+          if isinstance(model.layers[i],KfAttention) else model.layers[i](value)
+        if i == depth - 1:
+          print(f"get_layer(): layer {i} = {value.shape}, " \
+                f"type={type(model.layers[i])}, value.T={tf.transpose(value)}")
+    return value
+
 
 
 def plot(history):
@@ -181,7 +190,8 @@ def plot(history):
 
 if __name__ == "__main__":
     print("Transformer")
-    #x_train, y_train, x_test, y_test, w = get_features()
-    x_train, y_train, x_test, y_test, n_classes = prepare()
-    train_eval(x_train, y_train, x_test, y_test, n_classes)
-
+    #x_train, y_train, x_test, y_test, n_classes = prepare_data()
+    #model = train_eval(x_train, y_train, x_test, y_test, n_classes)
+    data = (prepare_data())
+    model = train_eval(*data)
+    attention_val = get_layer(model, data[2][0:20], 3)
