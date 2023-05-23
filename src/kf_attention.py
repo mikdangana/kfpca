@@ -121,22 +121,21 @@ class KfAttention(tf.keras.layers.Layer):
         self.bias_regularizer = tf.keras.regularizers.get(bias_regularizer)
         self.bias_constraint = tf.keras.constraints.get(bias_constraint)
 
-        #self.dropout = tf.keras.layers.Dropout(dropout)
-        #self._droput_rate = dropout
+        self.dropout = tf.keras.layers.Dropout(dropout)
+        self._droput_rate = dropout
+ 
 
     def build(self, input_shape):
 
-        input_shape = list(filter(lambda i: i, 
-                [[i] if isinstance(i,int) else i for i in input_shape]))
-        print(f"build().input_shape = {input_shape}, type = {type(input_shape)}")
-        num_query_features = input_shape[0][-1]
+        input_shape = [input_shape for i in range(3)]
+        print(f"build().input_shape={input_shape}, type={type(input_shape)}")
+        num_query_features = input_shape[0][-1] #input_shape[0][-1]
         #num_key_features = input_shape[1][-1]
-        num_value_features = input_shape[1][-1]
         num_value_features = (
-            input_shape[2][-1] if len(input_shape) > 2 else num_value_features #num_key_features
+            input_shape[2][-1] if len(input_shape)>2 else input_shape[1][-1] 
         )
         output_size = (
-            self.output_size if self.output_size is not None else num_value_features
+            num_value_features if self.output_size is None else self.output_size
         )
 
         self.query_kernel = self.add_weight(
@@ -181,6 +180,7 @@ class KfAttention(tf.keras.layers.Layer):
 
         super().build(input_shape)
 
+
     def call(self, inputs, training=None, mask=None):
 
         # einsum nomenclature
@@ -191,10 +191,10 @@ class KfAttention(tf.keras.layers.Layer):
         # I = input features
         # O = output features
 
+        inputs = [inputs for i in range(3)]
         query = inputs[0]
         #key = inputs[1]
-        value = inputs[1]
-        value = inputs[2] if len(inputs) > 2 else value
+        value = inputs[2] if len(inputs) > 2 else inputs[1]
 
         # verify shapes
         #if key.shape[-2] != value.shape[-2]:
@@ -214,7 +214,6 @@ class KfAttention(tf.keras.layers.Layer):
                     "mask's last dimension must be equal to the number of elements in 'key'"
                 )
 
-        #print(f"qk = {self.query_kernel}, kk = {self.key_kernel}, vk = {self.value_kernel}")
         # Linear transformations
         query = tf.einsum("...NI , HIO -> ...NHO", query, self.query_kernel)
         #key = tf.einsum("...MI , HIO -> ...MHO", key, self.key_kernel)

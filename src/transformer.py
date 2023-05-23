@@ -28,23 +28,34 @@ def get_dataset():
     return train_dataset
 
 
+def get_history(feature, age):
+    pad = feature[age:].transform(lambda d: feature[0])
+    return pd.concat((pad, feature[0:age]))
+
 
 def get_features():
     train_dataset = get_dataset()
     max_len, w, h = len(train_dataset), 25, -10
-    features, d0 = train_dataset, train_dataset['Tweet Count'][0]
-    pad = train_dataset['Tweet Count'][h:].transform(lambda d: d0)
-    features['Tweet Count'] = pd.concat((pad,train_dataset['Tweet Count'][0:h]))
+    features = train_dataset
+    #pad = train_dataset['Tweet Count'][h:].transform(lambda d: d0)
+    #features['Tweet Count'] = pd.concat((pad,train_dataset['Tweet Count'][0:h]))
+    #features['Tweet Count'] = history(train_dataset['Tweet Count'], -10)
+    f, (f0, f1) = 2*features.shape[1], features.shape
+    for i in range((f) - features.shape[1]):
+        features[f"h{i}"] = get_history(train_dataset['Tweet Count'], -10-i)
     target = train_dataset['Tweet Count']
     features = np.array(features) 
     target = np.array(target)
     print(f"features.raw.shape = {features.shape}, target = {target}")
-    f, (f0, f1) = 2*features.shape[1], features.shape
     n = int(int(f0*f1/(f**2))*(f**2)/f1)
     n1d = int(n*f1/((f**2)))
     print(f"features.n = {n}")
-    features = features[0:n].reshape((n1d, f, f)) 
-    target = np.array(target[n-n1d:n]).reshape((n1d, 1, 1))
+    #features = features.reshape((features.shape[0], f, f))
+    #features = features[0:n].reshape((n1d, f, f)) 
+    #target = np.array(target[n-n1d:n]).reshape((n1d, 1, 1))
+    #target = np.array(target[n-n1d:n]).reshape((n1d, 1, 1))
+    features = features.reshape((features.shape[0], features.shape[1], 1))
+    target = target.reshape((target.shape[0], 1, 1))
     print(f"features = {features.shape}, target = {target.shape}")
     N = int(0.8*len(features))
     return features[0:N], target[0:N], features[N:], target[N:], f1
@@ -65,7 +76,7 @@ def prepare_data():
     #x_train = x_train.reshape((x_train.shape[0], x_train.shape[1], 1))
     #x_test = x_test.reshape((x_test.shape[0], x_test.shape[1], 1))
 
-    n_classes = max(np.concatenate((y_train[:,0], y_test[:,0])))+1
+    n_classes = max(np.concatenate((y_train, y_test)))+1
 
     idx = np.random.permutation(len(x_train))
     x_train = x_train[idx]
@@ -150,18 +161,31 @@ def train_eval(x_train, y_train, x_test, y_test, n_classes):
     x_train,
     y_train,
     validation_split=0.2,
-    epochs=300,
+    epochs=100, #300,
     batch_size=64,
     callbacks=callbacks
   )
 
   plot(history)
   model.evaluate(x_test, y_test, verbose=1)
+  save_model(model)
 
   get_layer(model, x_test[0:20], 3)
 
   return model
 
+
+def save_model(model):
+    path = os.path.join(os.path.dirname(__file__), "..", "data", "kfmodel")
+    return model.save(path)
+
+
+def get_model(data = None):
+    path = os.path.join(os.path.dirname(__file__), "..", "data", "kfmodel")
+    if os.path.exists(path):
+        return keras.models.load_model(path)
+    else:
+        return train_eval(*data)
 
 
 def get_layer(model, inputs, depth=3):
@@ -172,7 +196,7 @@ def get_layer(model, inputs, depth=3):
           if isinstance(model.layers[i],KfAttention) else model.layers[i](value)
         if i == depth - 1:
           print(f"get_layer(): layer {i} = {value.shape}, " \
-                f"type={type(model.layers[i])}, value.T={tf.transpose(value)}")
+                f"type={type(model.layers[i])}, value={tf.transpose(value)}")
     return value
 
 
@@ -193,5 +217,6 @@ if __name__ == "__main__":
     #x_train, y_train, x_test, y_test, n_classes = prepare_data()
     #model = train_eval(x_train, y_train, x_test, y_test, n_classes)
     data = (prepare_data())
-    model = train_eval(*data)
-    attention_val = get_layer(model, data[2][0:20], 3)
+    attention_val = get_layer(get_model(data=data), data[2][0:20], 3)
+
+
