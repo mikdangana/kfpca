@@ -1,8 +1,9 @@
 # Derived from https://keras.io/examples/timeseries/timeseries_transformer_classification/
 import numpy as np, tensorflow as tf
 import matplotlib.pyplot as plt
-import os, random, time
+import os, random, sys, time
 import pandas as pd
+import plotly.express as px
 from tensorflow import keras
 from tensorflow.keras import layers
 from datetime import datetime
@@ -24,8 +25,49 @@ def get_dataset():
         lambda d: (datetime.strptime(d, "%m/%d/%Y %H:%M") - d0).total_seconds())
     train_dataset['Tweet Count'] = train_dataset['Tweet Count'].transform(
         lambda c: int(c))
-    print(train_dataset.head())
     return train_dataset
+
+
+def flatten_counts(train_dataset):
+    # 'Tweets' is a set of durations between tweets
+    tweets = train_dataset['Tweet Count'].transform(
+        lambda c: np.array([1e-6 if i>0 else 60/(c*1000**1) for i in range(c)]))
+    dataset = pd.DataFrame(data={'Tweets': np.concatenate(tweets)})
+    counts = train_dataset['Tweet Count'].transform(
+        lambda c: np.array([c for i in range(c)]))
+    dataset['Tweet Count'] = np.concatenate(counts)
+    print(f"flatten_counts().head = {dataset.head()}")
+    return dataset
+
+
+def get_crossings(filename):
+    print(f"file = {filename}")
+    train_dataset = pd.read_csv(filename)
+    print(f"head = {train_dataset.head()}")
+    dataset = []
+    base = "GLOBAL MEAN LATENCY (ns)" 
+    for i in range(10):
+        col = base if i==0 else f"{base} {i}"
+        if not col in train_dataset.columns:
+            continue
+        vals = train_dataset[col]
+        vals = np.array(vals.transform(lambda v: 
+            float(str(v).split()[0].replace("[", "").replace("]", ""))))
+        vals = list(filter(lambda i: i[1]-vals[i[0]-1]>30, 
+                           list(zip(range(len(vals)), vals))[1:]))
+        print(f"vals = {vals}")
+        dataset.append(list(map(lambda t: t[0], vals))[0])
+    dataset = np.array(dataset)
+    print(f"p75-p25 = {np.percentile(dataset, 75)-np.percentile(dataset, 25)}")
+    return dataset
+
+
+def get_histories(feature, max_age=10):
+    hists = []
+    for age in range(max_age):
+        pad = np.array([feature[0] for i in feature[age:]])
+        hists.append(np.concatenate((pad, feature[0:age])))
+    return np.array(hists).T
 
 
 def get_history(feature, age):
@@ -33,31 +75,21 @@ def get_history(feature, age):
     return pd.concat((pad, feature[0:age]))
 
 
-def get_features():
-    train_dataset = get_dataset()
+def get_features(verbose=True):
+    train_dataset = flatten_counts(get_dataset())
     max_len, w, h = len(train_dataset), 25, -10
     features = train_dataset
-    #pad = train_dataset['Tweet Count'][h:].transform(lambda d: d0)
-    #features['Tweet Count'] = pd.concat((pad,train_dataset['Tweet Count'][0:h]))
-    #features['Tweet Count'] = history(train_dataset['Tweet Count'], -10)
-    f, (f0, f1) = 2*features.shape[1], features.shape
-    for i in range((f) - features.shape[1]):
-        features[f"h{i}"] = get_history(train_dataset['Tweet Count'], -10-i)
+    f, (f0, f1) = 10, features.shape #7*features.shape[1], features.shape
+    for i in range(f - features.shape[1]):
+        features[f"h{i}"] = get_history(train_dataset['Tweet Count'], -f-i)
     target = train_dataset['Tweet Count']
     features = np.array(features) 
     target = np.array(target)
-    print(f"features.raw.shape = {features.shape}, target = {target}")
-    n = int(int(f0*f1/(f**2))*(f**2)/f1)
-    n1d = int(n*f1/((f**2)))
-    print(f"features.n = {n}")
-    #features = features.reshape((features.shape[0], f, f))
-    #features = features[0:n].reshape((n1d, f, f)) 
-    #target = np.array(target[n-n1d:n]).reshape((n1d, 1, 1))
-    #target = np.array(target[n-n1d:n]).reshape((n1d, 1, 1))
     features = features.reshape((features.shape[0], features.shape[1], 1))
     target = target.reshape((target.shape[0], 1, 1))
-    print(f"features = {features.shape}, target = {target.shape}")
     N = int(0.8*len(features))
+    if verbose:
+        print(f"features = {features.shape}, target = {target.shape}")
     return features[0:N], target[0:N], features[N:], target[N:], f1
 
 
@@ -68,13 +100,14 @@ def readucr(filename):
     return x, y.astype(int)
 
 
-def prepare_data():
-    x_train, y_train, x_test, y_test, w = get_features()
+def prepare_data(verbose=False):
+    x_train, y_train, x_test, y_test, w = get_features(verbose)
     #x_train, y_train = readucr(root_url + "FordA_TRAIN.tsv")
     #x_test, y_test = readucr(root_url + "FordA_TEST.tsv")
 
     #x_train = x_train.reshape((x_train.shape[0], x_train.shape[1], 1))
     #x_test = x_test.reshape((x_test.shape[0], x_test.shape[1], 1))
+    print(f"y_train = {y_train.shape}, y_test = {y_test.shape}")
 
     n_classes = max(np.concatenate((y_train, y_test)))+1
 
@@ -188,17 +221,48 @@ def get_model(data = None):
         return train_eval(*data)
 
 
-def get_layer(model, inputs, depth=3):
-    print(f"get_layer().inputs = {inputs.shape}")
+def get_layer(model, inputs, depth=3, verbose=False):
+    print(f"get_layer().inputs = {inputs.shape}") if verbose else None
+    print(f"get_layer().layers = {len(model.layers)}") if verbose else None
     value, n_layers = inputs, 3
-    for i in range(depth): #len(model.layers)):
-        value = model.layers[i](value, value) \
-          if isinstance(model.layers[i],KfAttention) else model.layers[i](value)
-        if i == depth - 1:
+    for i in range(depth): 
+        print(f"get_layer().layer = {model.layers[i]}") if verbose else None
+        try:
+            value = model.layers[i](value)
+        except:
+            value = model.layers[i](value, value) 
+        #  if isinstance(model.layers[i], KfAttention) or \
+        #     isinstance(model.layers[i], layers.core.tf_op_layer.TFOpLambda) else \
+        if verbose and i == depth - 1:
           print(f"get_layer(): layer {i} = {value.shape}, " \
-                f"type={type(model.layers[i])}, value={tf.transpose(value)}")
+                f"type={type(model.layers[i])}, value.T={tf.transpose(value)}")
     return value
 
+
+
+def plot_attention(attention_val, inputs):
+    (h, w, _), a = attention_val.shape, np.array(attention_val)
+    a = a.reshape((h, w))
+    print(f"w = {w}, h = {h}, att_val.shape = {attention_val.shape}")
+    #attention_df = np.array(attention_val).reshape((2*h, int(w/2)))
+    df = pd.DataFrame(np.concatenate((a,a)),columns=[f"h{i}" for i in range(w)])
+    attention_val = np.array(attention_val)
+    attention = [attention_val[:,i][0][-1] if i<w else 0 for i in range(h)]
+    attention = np.flip(np.array(attention), axis=0)
+    ids, counts = np.array(range(h)), np.array(inputs[:,-1])
+    print(f"counts = {counts.shape}, att = {np.array(attention).shape}")
+    df['Time (minutes)'] = np.concatenate((ids, ids))
+    df['Tweet Count'] = np.concatenate((counts[:,0], attention))
+    df['Distribution'] = np.concatenate((counts[:,0], attention))
+    #df['Series'] = np.concatenate(([0 for i in ids], attention))
+    #df = px.data.iris()
+    print(f"df = {df}")
+    #print(f"iris = {px.data.iris()}")
+    #fig = px.scatter(df, x="sepal_width", y="sepal_length", color="species",
+    #                 size='petal_length', hover_data=['petal_width'])
+    fig = px.scatter(df,x="Time (minutes)",y="Tweet Count",color="Distribution",
+                     size='Time (minutes)', hover_data=['Time (minutes)'])
+    fig.show()
 
 
 def plot(history):
@@ -213,10 +277,21 @@ def plot(history):
 
 
 if __name__ == "__main__":
+  if "-h" in sys.argv or "--help" in sys.argv:
+      print(f"Usage: python {__file__} [--crossings csv]")
+  elif "--crossings" in sys.argv:
+      print(get_crossings(sys.argv[sys.argv.index("--crossings") + 1]))
+  else:
     print("Transformer")
     #x_train, y_train, x_test, y_test, n_classes = prepare_data()
     #model = train_eval(x_train, y_train, x_test, y_test, n_classes)
-    data = (prepare_data())
-    attention_val = get_layer(get_model(data=data), data[2][0:20], 3)
-
+    data = (prepare_data(True))
+    model = get_model(data=data)
+    #attention_val = np.array([
+    #    np.array(get_layer(model, data[2][i:i+20], 3, True)[:,0,0]) \
+    #    for i in range(20)]).T
+    #print(f"attention_val.shape = {attention_val.shape}")
+    #plot_attention(attention_val.reshape((20,20,1)), data)
+    print(f"inputs = {data[2][0:20]}")
+    plot_attention(get_layer(model, data[2][0:20], 5, True), data[2][0:20])
 

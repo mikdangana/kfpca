@@ -17,7 +17,7 @@ declare -A CFG=()
 get_opts() {
     export START=true
     if [[ "${@}" =~ "-h" ]] || [[ "${@}" =~ "--help" ]]; then
-        echo "Usage: $0 [--start|--stop] [-h|--help]"; exit 0;
+	echo "Usage: $0 [--start|--stop|--runtest(s) n] [-h|--help]"; exit 0
     fi
     if  [[ "${@}" =~ "--stop" ]] ; then
         export START=false
@@ -34,6 +34,7 @@ get_opts() {
            fi
            shift
         done
+	echo "RUNTESTS = True, NUM_TESTS = $NUM_TESTS"
 	run_tests 
 	exit 0
     fi
@@ -233,6 +234,7 @@ run_tests() {
 	  echo Test results ${iter} appended
 	fi
     done
+    python ${BASE}src/transformer.py --crossings ${CSV}all.csv
     echo; echo Runtests done, output in ${CSV}all.csv
 }
 

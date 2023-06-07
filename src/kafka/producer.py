@@ -4,8 +4,10 @@ from kafka import KafkaProducer
 from kafka.structs import TopicPartition
 from datetime import datetime, timedelta
 from scipy.special import factorial
+import os, sys, time
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from transformer import get_dataset
 import numpy as np
-import os, time
 
 
 class PoissonProducer:
@@ -46,7 +48,7 @@ class PoissonProducer:
         return prob.argmax(axis=0)
 
 
-    def poisson_send(self, t, msg_bytes):
+    def send(self, t, msg_bytes):
         ts = self.poisson_next_ms(self.num_test_msg-t)/self.num_points
         print(f'Sending message {msg_bytes.decode("UTF-8")} after {ts} seconds')
         #time.sleep(ts)
@@ -55,14 +57,81 @@ class PoissonProducer:
         self.producer.flush()
 
 
+    def send_all(self):
+        for t in range(self.num_test_msg):
+            ts = datetime.now() - timedelta(minutes=60)
+            # Convert to epoch milliseconds
+            ts_ms = ts.timestamp() #*1000.0
+            self.send(t, bytes(f'{ts_ms}', 'utf-8'))
+
+
+class TwitterProducer:
+
+    config = None
+    num_test_msg = 3
+    bucket = 0
+    # Topic name
+    topic = ""
+    producer = None
+    data = None
+    bkts = None
+
+
+    def __init__(self):
+        self.data = get_dataset()
+        self.config = self.load_configs()
+        self.num_test_msg = sum(self.data['Tweet Count'])
+        self.bkts = np.concatenate(self.data['Tweet Count'].transform(
+                lambda d: np.array([d for i in range(d)])))
+        #train_dataset['Tweet Count'] = train_dataset['Tweet Count'].transform(
+        #    lambda c: int(c))
+        self.topic = self.config.get("kafka.topics").data.split(",")[0]
+        # Bootstrap servers - you can input multiple ones with comma seperated.
+        # for example, bs1:9092, bs2:9092
+        bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
+        self.producer = KafkaProducer(bootstrap_servers=bootstrap_servers[0])
+
+
+    @staticmethod
+    def load_configs(path=os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..')),
+            'config', 'testbed.properties')):
+        config = Properties()
+        with open(path, 'rb') as config_file:
+            config.load(config_file)
+        return config
+
+
+    def tweet_delay_ms(self, t):
+        bkt_size = self.bkts[t]
+        if not bkt_size == self.bkts[t-1 if t>0 else 0]: # new bucket
+            time.sleep((60/max(1, bkt_size))/(1000**3))
+        #granularity=1min, with 1s=1ms for simulation, see src/twitter_search.py
+        return 60 / max(1, bkt_size)
+
+
+    def send(self, t, msg_bytes):
+        ts = self.tweet_delay_ms(t)
+        #print(f'Sending message {msg_bytes.decode("UTF-8")} after {ts} secs')
+        future = self.producer.send(self.topic, msg_bytes)
+        result = future.get(timeout=60)
+        self.producer.flush()
+
+
+    def send_all(self):
+        print(f'Twitter.send_all().num_msg = {self.num_test_msg}')
+        for t in range(self.num_test_msg):
+            #self.send(t, bytes(f'tweet-{t}', 'utf-8'))
+            ts_ms = (datetime.now() - timedelta(minutes=60)).timestamp() #*1000
+            # Convert to epoch milliseconds
+            self.send(t, bytes(f'{ts_ms}', 'utf-8'))
+
 
 if __name__ == "__main__":
 
-    poissonProd = PoissonProducer()
-
-    for t in range(poissonProd.num_test_msg):
-        ts = datetime.now() - timedelta(minutes=60)
-        # Convert to epoch milliseconds
-        ts_ms = ts.timestamp() #*1000.0
-        poissonProd.poisson_send(t, bytes(f'{ts_ms}', 'utf-8'))
-
+    if "--poisson" in sys.argv:
+        PoissonProducer().send_all()
+    elif "--twitter" in sys.argv:
+        TwitterProducer().send_all()
+    else:
+        TwitterProducer().send_all()

@@ -14,6 +14,10 @@ def system(cmd):
     return os.system(cmd)
 
 
+def dupe(val, n):
+    return np.array([val for i in range(n)])
+
+
 class Tracker:
 
     config = None
@@ -25,9 +29,10 @@ class Tracker:
     count = 0
     update_count = 0
 
-    def __init__(self):
+    def __init__(self, deterministic=False):
         self.config = PoissonProducer.load_configs()
         self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2)
+        self.is_deterministic = deterministic
         pickledump(self.config.get("data.tracker.file").data, 
                [["TOPIC", "PARTITION", "GLOBAL MEAN LATENCY (ns)", 
                  "GLOBAL MEAN THROUGHPUT (msg/s)", "LOCAL LATENCY (ns)"]])
@@ -77,7 +82,7 @@ class Tracker:
                 latencies.append([ts_ms - val, ts_ms-val])
                 if not self.is_deterministic:
                     self.kf.ekf.x = np.array([[v] for v in latencies[-1]]) \
-                            if kf_type=="EKF" else np.array(latencies[-1]) # UKF
+                            if is_ekf() else np.array(latencies[-1]) # UKF
                     x = self.pair(latencies, self.px, [0,0])
                     y = self.pair(msmts, self.py) 
                     self.px = latencies[-1]
@@ -89,6 +94,7 @@ class Tracker:
                     self.kf.update(msmts[-2:], Hj=hj, H=hx)
                     self.update_count += 1
                     return hj, hx
+                return latencies[-1]
 
 
     def to_metrics(self, requests, metrics, track_cadence):
@@ -98,17 +104,20 @@ class Tracker:
         for i, consumer_record in zip(range(n), requests):
             val = float(consumer_record.value.decode("utf-8"))
             self.t0 = val if self.t0 is None else self.t0
-            msmts.append(self.kf.pca_normalize(val - self.t0))
+            if is_pca():
+                msmts.append(self.kf.pca_normalize(val - self.t0)) 
+            else:
+                msmts.append(val - self.t0)
             if self.is_deterministic or i%track_cadence < 1 or len(msmts) == 3:
                 hj, hx = self.compute_latency(latencies, msmts, ts_ms, val)
             else:
                 # predict latency/throughput
                 x = self.kf.predict([msmts[-2],msmts[-1]],Hj=hj,H=hx)[-1][-1].T
-                latencies.append(list(x[0] if kf_type=="EKF" else x)) # UKF
+                latencies.append(list(x[0] if is_ekf() else x)) # UKF
             k = f"{consumer_record.topic}-{consumer_record.partition}"
-            print(f"to_metrics.ekf.x_prior = {self.kf.ekf.x_prior}, k={k}")
             metrics[k] = [latencies[-1]+msmts[-1:]] if k not in metrics else \
                     metrics[k] + [latencies[-1]+msmts[-1:]]
+        print(f"to_metrics.metrics = {metrics}")
         return metrics
 
 
@@ -175,10 +184,13 @@ class Tracker:
         v = srcdata[:, int(col)][-1]
         rows,cols = max(len(destdata), len(srcdata)), len(destdata[0])
         print(f"copy_col().srcdata.len={len(srcdata)} {len(srcdata[0])} "\
-                f"dest={len(destdata)} {len(destdata[0])}")
-        rowext = [destdata[-1] for i in range(len(srcdata)-len(destdata))]
-        srccol = [srcdata[:,int(col)]] + \
-                [v for i in range(len(destdata)-len(srcdata))]
+                f"dest={len(destdata)} {len(destdata[0])}, col,r={col},{rows}")
+        #rowext = np.array([destdata[-1] for i in range(rows-len(destdata))])
+        rowext = dupe(destdata[-1], rows-len(destdata))
+        #srccol = np.concatenate((srcdata[:,int(col)],
+        #                  np.array([v for i in range(rows-len(srcdata))])))
+        srccol=np.concatenate((srcdata[:,int(col)], dupe(v,rows-len(srcdata))))
+        print(f"copy_col().srccol = {srccol.shape}, rowext = {rowext.shape}")
         destdata = np.append(
             np.append(destdata, rowext).reshape((rows,cols)).T,
             srccol).reshape((cols+1, rows)).T

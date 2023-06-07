@@ -14,10 +14,21 @@ from numpy.linalg import inv
 from functools import reduce
 from random import random
 from datetime import *
+from transformer import get_layer, get_model, prepare_data, get_histories
 
 
 logger = logging.getLogger("Kalman_Filter")
-kf_type = "UKF"
+
+kf_types = ["UKF", "EKF", "EKF-PCA", "KF", "AKF-PCA"]
+kf_type = ""
+
+
+def is_ekf():
+    return kf_type.startswith("EKF")
+
+
+def is_pca():
+    return kf_type.endswith("PCA")
 
 
 # Test the accuracy of an EKF using the provide measurement data
@@ -187,11 +198,14 @@ class PCAKalmanFilter:
     ekf = None
     msmts = []
     n_components = None
+    model = None
 
-    def __init__(self, nmsmt=None, dx=None, n_components=4, H=None):
+    def __init__(self, nmsmt=None, dx=None, n_components=10, H=None):
         self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx, hx = H)[0]
         self.n_components = n_components
         self.msmts = [0 for i in range(self.n_components)]
+        data = (prepare_data(False))
+        self.model = get_model(data=data)
 
 
     def update(self, *args, **kwargs):
@@ -203,19 +217,36 @@ class PCAKalmanFilter:
         _, priors = update_ekf(self.ekf, args, **kwargs)
         return priors
 
+
+    def pca_attention(self, n, vb=False):
+        values = [0 for i in range(n-len(self.msmts))]+self.msmts
+        print(f"pca_normalize().values.0 = {values}") if vb else None
+        inputs = get_histories(values)
+        print(f"pca_normalize().values.1 = {inputs}") if vb else None
+        values=np.array(get_layer(self.model,inputs[-n:].reshape(n,n,1),5,True))
+        print(f"pca_normalize().values.2 = {values.T}") if vb else None
+        weights = sum(values)
+        weights = weights / max(weights)
+        print(f"pca_normalize().weights = {weights.T}") if vb else None
+        values = weights.T * inputs
+        print(f"pca_normalize().values.3 = {values}") if vb else None
+        #values = values / (values)
+        return values
+
     
     def pca_normalize(self, msmt):
-        n = self.n_components
+        n, N = self.n_components, self.n_components*self.n_components
         self.msmts.append(msmt)
-        values = [0 for i in range(n*n-len(self.msmts))] + self.msmts
-        mu = np.mean(values[-n*n:], axis=0)
-        pca = getpca_raw(n, np.array(values[-n*n:]).reshape(n, n)) 
-
+        values = [0 for i in range(N-len(self.msmts))]+self.msmts
+        if kf_type == "AKF-PCA":
+            values, N = self.pca_attention(values), n
+        mu = np.mean(values[-N:], axis=0)
+        pca = getpca_raw(n, np.array(values[-N:]).reshape(n, n)) 
         #print(f"normalize().pca = {pca}, evecs={pca.components_}, " \
         #      f"evals={pca.explained_variance_}")
-        scores = pca.transform(np.array(values[-n*n:]).reshape(n,n))
+        scores = pca.transform(np.array(values[-N:]).reshape(n, n))
         #print(f"normalize().scores = {scores}")
-        pca_components = [np.zeros((1,n))[0] if s<1 else v for s,v in \
+        pca_components = [np.zeros((1, n))[0] if s<1 else v for s,v in \
             zip(pca.explained_variance_, pca.components_)] # noise reduction
         #print(f"normalize().pca_components = {pca_components}")
         msmt_hat = np.dot(scores[:,:n], pca_components)
@@ -259,7 +290,7 @@ def estimate_weights():
   ekf, ecount = build_ekf([], [], nmsmt=n_coeff, dx=n_coeff), 0
   def estimator(zs, ws, bs, X, Y, xval, yval):
     global ecount
-    logger.info("estimate_w.z,w,b,xv,yv = "+str((zs,ws,bs,xval.shape,yval.shape)))
+    logger.info("estimate_w.z,w,b,xv,yv="+str((zs,ws,bs,xval.shape,yval.shape)))
     x, y, ecount = ws[-1], zs[-1], ecount + 1
     if x==None or y == None:
         logger.info("Nil x,y = " + str((x,y)))

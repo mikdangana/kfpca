@@ -14,11 +14,13 @@ class ActiveConsumer:
     config = None
     topic = None
     consumer = None
-    tracker = Tracker()
+    tracker = None
 
     def __init__(self):
         self.config = PoissonProducer.load_configs()
         self.topic = self.config.get("kafka.topics").data.split(",")[0]
+        self.tracker = Tracker(self.config.get("tracker.type").data=="PASSIVE")
+        print(f"tracker.is_deterministic = {self.tracker.is_deterministic}")
         bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
         print(f"topic = {self.topic}, kafka.srv = {bootstrap_servers}")
         self.consumer = KafkaConsumer(
