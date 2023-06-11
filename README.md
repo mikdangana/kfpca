@@ -11,6 +11,11 @@ Set Tracker properties
 pip install -r requirements.txt
 ```
 
+## Get most recent data from Twitter API
+```
+python src/twitter_search.py
+```
+
 ## How to run the Kafka tracker
 ```
 sh src/kafka/setup.sh -h
@@ -38,7 +43,7 @@ ls data_tracker.pickle.csv*
 ```
 
 
-## Results
+## Workload data
 ```
 ls data/
 ```

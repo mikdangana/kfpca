@@ -4,6 +4,7 @@ from numpy import array, resize, zeros, float32, matmul, identity, shape
 from numpy import ones, dot, divide, subtract
 from numpy.linalg import inv
 from functools import reduce
+from jproperties import Properties
 from random import random
 from subprocess import Popen
 from utils import *
@@ -354,6 +355,15 @@ def init_config_variables():
     #n_lstm_out = n_msmt #n_coeff
     tasks = get_config('lqn-tasks')
     logger.info("init_config_variables() done")
+
+
+def load_testbed_config(path=os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__),'..')),
+            'config', 'testbed.properties')):
+    config = Properties()
+    with open(path, 'rb') as config_file:
+        config.load(config_file)
+    return config
 
 
 #init_config_variables()

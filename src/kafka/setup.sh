@@ -35,7 +35,7 @@ get_opts() {
            shift
         done
 	echo "RUNTESTS = True, NUM_TESTS = $NUM_TESTS"
-	run_tests 
+	time run_tests 
 	exit 0
     fi
 }
@@ -226,6 +226,7 @@ run_tests() {
 	rm -fr /c/tmp/zoo*; rm -fr /c/tmp/kafka*; rm -fr /tmp/kafka*
 	export START=true
 	run_test
+	sleep 420
 	if [ ${iter} == 0 ]; then 
 	  cp ${CSV} ${CSV}all.csv
 	  echo Test results ${iter} copied

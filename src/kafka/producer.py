@@ -73,18 +73,15 @@ class TwitterProducer:
     # Topic name
     topic = ""
     producer = None
-    data = None
     bkts = None
 
 
     def __init__(self):
-        self.data = get_dataset()
+        data = get_dataset()
         self.config = self.load_configs()
-        self.num_test_msg = sum(self.data['Tweet Count'])
-        self.bkts = np.concatenate(self.data['Tweet Count'].transform(
+        self.num_test_msg = sum(data['Tweet Count'])
+        self.bkts = np.concatenate(data['Tweet Count'].transform(
                 lambda d: np.array([d for i in range(d)])))
-        #train_dataset['Tweet Count'] = train_dataset['Tweet Count'].transform(
-        #    lambda c: int(c))
         self.topic = self.config.get("kafka.topics").data.split(",")[0]
         # Bootstrap servers - you can input multiple ones with comma seperated.
         # for example, bs1:9092, bs2:9092
@@ -104,8 +101,8 @@ class TwitterProducer:
 
     def tweet_delay_ms(self, t):
         bkt_size = self.bkts[t]
-        if not bkt_size == self.bkts[t-1 if t>0 else 0]: # new bucket
-            time.sleep((60/max(1, bkt_size))/(1000**3))
+        #if not bkt_size == self.bkts[t-1 if t>0 else 0]: # new bucket
+        #    time.sleep((60/max(1, bkt_size))/(1000**3))
         #granularity=1min, with 1s=1ms for simulation, see src/twitter_search.py
         return 60 / max(1, bkt_size)
 
@@ -129,9 +126,13 @@ class TwitterProducer:
 
 if __name__ == "__main__":
 
-    if "--poisson" in sys.argv:
-        PoissonProducer().send_all()
-    elif "--twitter" in sys.argv:
+    poisson = PoissonProducer()
+    workload = poisson.config.get("workload.type").data
+    print(f"Producer.workload = {workload}")
+    if "--poisson" in sys.argv or "POISSON" == workload:
+        poisson.send_all()
+    elif "--twitter" in sys.argv or "TWITTER" == workload:
         TwitterProducer().send_all()
     else:
-        TwitterProducer().send_all()
+        poisson.send_all()
+

@@ -19,12 +19,16 @@ from transformer import get_layer, get_model, prepare_data, get_histories
 
 logger = logging.getLogger("Kalman_Filter")
 
-kf_types = ["UKF", "EKF", "EKF-PCA", "KF", "AKF-PCA"]
-kf_type = ""
+
+tconfig = load_testbed_config()
+ttype = tconfig.get("tracker.type").data 
+
+# KF types = ["UKF", "EKF", "EKF-PCA", "KF", "AKF-PCA"]
+kf_type = "UKF" if ttype=="PASSIVE" else ttype
 
 
 def is_ekf():
-    return kf_type.startswith("EKF")
+    return kf_type.startswith("EKF") or kf_type.startswith("AKF")
 
 
 def is_pca():
@@ -218,8 +222,8 @@ class PCAKalmanFilter:
         return priors
 
 
-    def pca_attention(self, n, vb=False):
-        values = [0 for i in range(n-len(self.msmts))]+self.msmts
+    def pca_attention(self, values, n, vb=False):
+        #values = [0 for i in range(n-len(self.msmts))]+self.msmts
         print(f"pca_normalize().values.0 = {values}") if vb else None
         inputs = get_histories(values)
         print(f"pca_normalize().values.1 = {inputs}") if vb else None
@@ -239,7 +243,7 @@ class PCAKalmanFilter:
         self.msmts.append(msmt)
         values = [0 for i in range(N-len(self.msmts))]+self.msmts
         if kf_type == "AKF-PCA":
-            values, N = self.pca_attention(values), n
+            values, N = self.pca_attention(values, n), n
         mu = np.mean(values[-N:], axis=0)
         pca = getpca_raw(n, np.array(values[-N:]).reshape(n, n)) 
         #print(f"normalize().pca = {pca}, evecs={pca.components_}, " \
