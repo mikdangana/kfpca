@@ -59,17 +59,21 @@ class GridLSTM(LSTM):
 def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
                       predfn = None, dopca = True, pre = ""):
     (r, rows, hdrs) = (-1, {}, [])
-    float_np = np.vectorize(float)
+    flt = lambda n: int(float(n)*100)
     rows = pd.read_csv(fname)
-    ys = list(zip(rows[ycol], rows[ycol]))
-    y = float_np(np.array(rows[ycol]))
-    x = np.array([float_np(rows[xcol][i:i+50]) for i in range(len(rows[xcol]))])
-
+    y = np.array([[0, 0]] + [[flt(v), flt(v)] for v in rows[ycol][1:]])
+    x = rows[xcol]
+    x = np.array([list(x[i:i+50])+list(np.zeros((max(0,i+50-len(x)),1))) \
+                  for i in range(len(x))])
+    x = np.array([[flt(x[i,j]) for j in range(50)] for i in range(len(x))])
+    
     X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
-    y_train = pd.get_dummies(y_train).values
-    y_test = pd.get_dummies(y_test).values
+    print("X_train = {}, y_train = {}".format(X_train.shape, y_train.shape))
+    print("X_test = {}, y_test = {}".format(X_test.shape, y_test.shape))
+    y_train = pd.get_dummies(y_train[:,1]).values
+    y_test = pd.get_dummies(y_test[:,1]).values
 
-    return X_train, y_train, X_test, y_test
+    return X_train, y_train[:,1], X_test, y_test[:,1]
 
 
 
@@ -98,7 +102,7 @@ def generate_data(test_split = 0.2, variable=False):
     X = np.array(X)
     print("X = {}".format(X))
     X = savgol_filter(X, 5, 2)
-    print("X1 = {}".format(X))
+    print("X1 = {}".format(X.shape))
     #exit(0)
     y = np.array(y)
 
@@ -110,13 +114,13 @@ def generate_data(test_split = 0.2, variable=False):
 
 
 
-def create_GridLSTM_model(input_length):
+def create_GridLSTM_model(rows=10000, length=50):
     print('---Creating GridLSTM model---')
     embed_dim = 128
     lstm_out = 200
 
     model = Sequential()
-    model.add(Embedding(10000, embed_dim, input_length=50)) #, dropout=0.2))
+    model.add(Embedding(rows, embed_dim, input_length=length)) #, dropout=0.2))
     model.add(GridLSTM(lstm_out)) #, dropout_U = 0.2, dropout_W = 0.2))
     model.add(Dense(2, activation='softmax'))
     model.compile(loss='mse',
@@ -132,7 +136,7 @@ def run_test(*args, **kwargs):
                                        generate_from_csv(*args, **kwargs)
     print("x_train, x_test = {}, {}".format(X_train, X_test))
 
-    model = create_GridLSTM_model(len(X_train[0]))
+    model = create_GridLSTM_model(len(X_train), len(X_train[0]))
     model.fit(X_train, y_train, batch_size=10, epochs=1)
     err, acc = model.evaluate(X_test, y_test, batch_size=4)
     print("eval = {}".format((err, acc)))
