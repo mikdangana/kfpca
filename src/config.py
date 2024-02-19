@@ -260,9 +260,11 @@ def dups(cfg, *dup_key):
 
 def load_config():
     global config
-    yamlfile = os.path.dirname(os.path.abspath(__file__)) + "/../lstm_ekf.yaml"
+    yamlfile = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "config", "lstm_ekf.yaml")
     logger.info("yaml file = " + str(yamlfile))
-    with open(yamlfile, 'r') as stream:
+    if os.path.exists(yamlfile):
+      with open(yamlfile, 'r') as stream:
         try:
             config = yaml.load(stream)
         except yaml.YAMLError as ex:

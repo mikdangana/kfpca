@@ -1,10 +1,11 @@
 import os, re, sys, traceback
 import yaml, logging, logging.handlers, csv
+import pandas as pd, numpy as np
 import pickle, subprocess
 from functools import reduce
 from math import floor
 from numpy import array, resize, zeros, float32, matmul, identity, shape
-from numpy import ones, dot, divide, subtract, size, append, transpose
+from numpy import ones, dot, divide, subtract, size, append, transpose, isscalar
 from numpy import gradient, mean, std, outer, vstack, concatenate, savetxt
 from numpy.linalg import inv, lstsq
 from random import random
@@ -58,16 +59,15 @@ def utilization(key, states, stateinfo):
     return states[int(key)] / maxval if maxval else states[int(key)]
 
 
-def get(o, *keys):
+def get(o, *keys, dv=None):
     for k in keys:
         if isinstance(k, list):
             o = get(o[k[0]], k[1:]) if len(k) and o else o
-        elif not k in o:
-            return None
+        elif isscalar(o) or not k in o:
+            return dv # default value
         else:
             o = o[k]
     return o
-
 
 
 def load_state():
@@ -102,9 +102,9 @@ def merge_state(delta):
 
 def repeat(v, n):
     if isinstance(v, type(lambda i:i)):
-        return map(v, range(0,n))
+        return [v for i in range(0,n)]
     else:
-        return map(lambda i: v, range(0,n))
+        return [v for i in range(0,n)]
 
 
 def avg(seq):
@@ -250,7 +250,8 @@ def convergence(data):
         (l, u) = (m-tolerance, m+tolerance) 
         confidence = len(list(filter(lambda d: d>=l and d<=u, win)))/len(win)
         stat.append(confidence)
-    logger.info("convergence.confidences = " + str(stat[1:]) + ", data = " + str(shape(data)) + ", stds = " + str(stds))
+    logger.info("convergence.confidences = " + str(stat[1:]) + 
+                ", data = " + str(shape(data)) + ", stds = " + str(stds))
     return stat[1:] # Ignore 1st window, its always 100% by definition
 
 
@@ -312,17 +313,18 @@ def test_pca(ns = 100, predfn = None, dopca = True):
     return test_pca_basic(ns, predfn, dopca, lqn_ps, ys)
 
 
-def test_pca_basic(ns = 100, predfn = None, dopca = True, lqn_ps = [], ys = []):
+def test_pca_basic(ns=100, predfn=None, dopca=True, lqn_ps=[], ys=[], pre=""):
     (sz, n, d, lqn_p0, lqn_p1, y1s, ms) = (24, 10, 1, [], [], [], [])
     run_pca_tests(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, sz, n, d, predfn, dopca)
     if not dopca:
         (lqn_p1, lqn_ps, y1s) = (lqn_p1, lqn_ps, array(y1s))
         #(lqn_p1, y1s) = (scale(lqn_p1, lqn_ps), scale(y1s, lqn_ps))
-    save_pca_info(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, d)
+    save_pca_info(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, d, pre, dopca)
     err = sum([sum(abs(p-p1.T[0])) for p,p1 in zip(lqn_ps,lqn_p1)])/len(lqn_ps)
+    sd = np.std([sum(abs(p-p1.T[0])) for p,p1 in zip(lqn_ps,lqn_p1)])
     p = sum([sum(abs(array(p))) for p,p1 in zip(lqn_ps,lqn_p1)])/len(lqn_ps)
-    print("Err.mean, LQNP.mean, % = "+str((err, p, 100*err/p)))
-    print("Output in pca_*.pickle files")
+    print("Err.mean, Err.std, LQNP.mean, % = "+str((err, sd, p, 100*err/p)))
+    print(f"Output in pca_*{pre}.pickle files")
     print("test_pca() done")
     return 100 * err / p
 
@@ -344,16 +346,21 @@ def run_pca_tests(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, sz, n, d, predfn, dopca):
         else:
             ystart = i-len(y) if i>len(y) else 0
             pstart = i-len(lqn_p) if i>len(lqn_p) else 0
-            y1 = predfn(array(ys[ystart:i+1]), array(lqn_ps[pstart:i+1]))[0]
-            #print("run_pca_tests().y1 = {}, ys = {}, lqn_ps = {}".format(y1, ys[ystart:i+1], lqn_ps[pstart:i+1]))
+            #y1 = predfn(array(ys[ystart:i+1]), array(lqn_ps[pstart:i+1]))[0]
+            y1 = predfn(array(ys[ystart:i+1]))[0]
+            #print("run_pca_tests().y1 = {}, ys = {}, lqn_ps = {}, y = {}, lqn_p = {}".format(y1, ys[ystart:i+1], lqn_ps[pstart:i+1], y, lqn_p))
         y1s.append(y1)
-        (m, c) = solve_linear_pca(lqn_p, pca_y1)
+        (m, c) = solve_linear_pca(lqn_p, pca_y1) if dopca else (0, 0) 
         #print("run_pca_tests().pca_y1 = {}, pca_y = {}".format(pca_y1, pca_y))
         if (len(ms) >= d):
             y1 = array([[y1[0]]])
             lqn_p1.append(dot(pca_y1.T,ms[-d][0])+ms[-d][1] if dopca else y1)
             lqn_p0.append(dot(pca_y.T, m) + c)
-        ms.append((m, c))
+        ms.append((m, c)) 
+
+
+def depth(values):
+    return len(array(values).shape)
 
 
 def pad(y):
@@ -364,15 +371,15 @@ def most_sig_pca(ncol, y):
     return concatenate((getpca(1, pad(y).T).T, zeros([ncol-1,2*len(y)]))).T
 
 
-def save_pca_info(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, d):
-    pickledump("pca_ms.pickle", [m for m,c in ms])
-    pickledump("pca_msmts.pickle", [y[0] for y in ys])
-    pickledump("pca_kfpriors.pickle", [y for y in y1s])
-    pickledump("pca_lqnp.pickle", lqn_ps)
-    pickledump("pca_lqnp0.pickle", [p0.T[0] for p0 in lqn_p0])
-    pickledump("pca_lqn-kfprior.pickle", [p1.T[0] for p1 in lqn_p1])
+def save_pca_info(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, d, tag="", dopca=True):
+    pickledump(f"pca_ms{tag}.pickle", [m for m,c in ms]) if dopca else None
+    pickledump(f"pca_msmts{tag}.pickle", [y[-1] for y in ys])
+    pickledump(f"pca_kfpriors{tag}.pickle", [y for y in y1s])
+    pickledump(f"pca_lqnp{tag}.pickle", lqn_ps)
+    pickledump(f"pca_lqnp0{tag}.pickle", [p0.T[0] for p0 in lqn_p0])
+    pickledump(f"pca_lqn-kfprior{tag}.pickle", [p1.T[0] for p1 in lqn_p1])
     pairs = zip(lqn_p1,lqn_ps[d:])
-    pickledump("pca_lqnerrors.pickle", [abs(p1.T[0]-p) for p1,p in pairs])
+    pickledump(f"pca_lqnerrors{tag}.pickle", [abs(p1.T[0]-p) for p1,p in pairs])
 
 
 def max_min(vs):
@@ -409,27 +416,29 @@ def to_size(data, width, entries = n_entries):
 
 
 def test_pca_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
-                 predfn = None, dopca = True):
+                 predfn = None, dopca = True, pre = "", predictions=[]):
         (r, rows, hdrs) = (-1, {}, [])
-        with open(fname) as f:
-            rdr = csv.reader(f, delimiter=' ')
-            for row in rdr:
-                r = r + 1
-                if r > 0:
-                    row = row[0].split(',')
-                    for c in range(len(row)):
-                        if r == 1:
-                            hdrs.append(row[c])
-                            rows[hdrs[c]] = []
-                        else:
-                            rows[hdrs[c]].append(to_float(row[c]))
+        #with open(fname) as f:
+        #    rdr = csv.reader(f, delimiter=' ')
+        #    for row in rdr:
+        #        r = r + 1
+        #        if r > 0:
+        #            row = row[0].split(',')
+        #            for c in range(len(row)):
+        #                if r == 1:
+        #                    hdrs.append(row[c])
+        #                    rows[hdrs[c]] = []
+        #                else:
+        #                    rows[hdrs[c]].append(to_float(row[c]))
+        rows = pd.read_csv(fname)
         ys = list(zip(rows[ycol], rows[ycol]))
         (zs, ks) = (zeros((10,len(ys[0]))), range(len(ys)))
         ys = [array(ys[r-10:r] if r>10 else rows[ycol][0]+zs) for r in ks]
-        xs = [[a for j in range(1)] for a,b in zip(rows[xcol], rows[xcol])]
+        xs = [[a for j in range(1)] for a in rows[xcol]][1:] + repeat([0],1)
         predfn = predfn if predfn else lambda y: ys[rows[ycol].index(y[0][0])]
-        perr = test_pca_basic(len(rows[ycol]), predfn, dopca, xs, ys)
+        perr = test_pca_basic(len(rows[ycol]), predfn, dopca, xs, ys, pre)
         print("test_pca_csv(): % err = {}".format(perr))
+        predictions.extend(xs)
 
 
 if __name__ == "__main__":
