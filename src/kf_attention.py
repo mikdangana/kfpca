@@ -128,7 +128,7 @@ class KfAttention(tf.keras.layers.Layer):
     def build(self, input_shape):
 
         input_shape = [input_shape for i in range(3)]
-        print(f"build().input_shape={input_shape}, type={type(input_shape)}")
+        #print(f"build().input_shape={input_shape}, type={type(input_shape)}")
         num_query_features = input_shape[0][-1] #input_shape[0][-1]
         #num_key_features = input_shape[1][-1]
         num_value_features = (

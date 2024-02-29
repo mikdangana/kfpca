@@ -47,3 +47,19 @@ ls data_tracker.pickle.csv*
 ```
 ls data/
 ```
+
+## KF accuracy tests
+### Edit tracker.type = KF/UKF/EKF/EKF-PCA/AKF-PCA config
+```
+sed -i s/tracker.type=.*/tracker.type=EKF-PCA/ config/testbed.properties
+```
+
+### Run KF csv-based estimator test
+```
+python src/ekf.py --testpcacsv -f data/twitter_trace.csv -x 'Tweet Count' -y 'Tweet Count' > out_ekfpca.txt
+```
+
+### View summary stats 
+```
+tail out_ekfpca.txt
+```

@@ -7,6 +7,7 @@ from keras.layers import Bidirectional
 from scipy.signal import savgol_filter
 from functools import reduce
 from ekf import test_pca
+import math
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -57,7 +58,7 @@ class GridLSTM(LSTM):
 
 
 def to_grid(x, w=50):
-    flt = lambda n: int(float(n)*100)
+    flt = lambda n: 0 if math.isnan(float(n)) else int(float(n)*100)
     x = np.array([list(x[i:i+w])+list(np.zeros((max(0,i+w-len(x)),1))) \
                   for i in range(len(x))])
     x = np.array([[flt(x[i,j]) for j in range(w)] for i in range(len(x))])
@@ -68,7 +69,7 @@ def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
                       predfn = None, dopca = True, pre = "", 
                       filter_savgol=False, filter_kalman=False):
     (r, rows, hdrs) = (-1, {}, [])
-    flt = lambda n: int(float(n)*100)
+    flt = lambda n: 0 if math.isnan(float(n)) else int(float(n)*100)
     rows = pd.read_csv(fname)
     y = np.array([[flt(v), flt(v)] for v in rows[ycol][1:]] + [[0, 0]])
     x = np.array(to_grid(rows[xcol]))
@@ -82,7 +83,8 @@ def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
     
     X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
     print("X_train = {}, y_train = {}".format(X_train.shape, y_train.shape))
-    print("X_test = {}, y_test = {}".format(X_test.shape, y_test.shape))
+    print("X_test = {}, y_test = {}, filter = {}".format(
+            X_test.shape, y_test.shape, label(filter_savgol, filter_kalman)))
     y_train = pd.get_dummies(y_train[:,1]).values
     y_test = pd.get_dummies(y_test[:,1]).values
 
@@ -145,15 +147,26 @@ def create_GridLSTM_model(rows=10000, length=50):
 
 
 
+def label(sf, kf, **kwargs):
+    if 'filter_savgol' in kwargs:
+        sf = sf if sf else kwargs['filter_savgol']
+    if 'filter_kalman' in kwargs:
+        kf = kf if kf else kwargs['filter_kalman']
+    return "Savitsky-Gorlay" if sf else "Kalman" if kf else "GridLSTM"
+
+
+
 def run_test(*args, **kwargs):
     X_train, y_train, X_test, y_test = generate_data() if not len(args) else \
                                        generate_from_csv(*args, **kwargs)
     #print("x_train, x_test = {}, {}".format(X_train, X_test))
 
     model = create_GridLSTM_model(len(X_train), len(X_train[0]))
-    model.fit(X_train, y_train, batch_size=10, epochs=10)
+    epochs = int(sys.argv[sys.argv.index("-e")+1]) if "-e" in sys.argv else 5
+    model.fit(X_train, y_train, batch_size=10, epochs=epochs)
     err, acc = model.evaluate(X_test, y_test, batch_size=4)
-    print("eval = {}".format((err, acc)))
+    print("eval for {} = {}".format(label(None,None,**kwargs), (err, acc)))
+    return err, acc
 
 
 
@@ -163,8 +176,21 @@ if __name__ == "__main__":
     ycol = sys.argv[sys.argv.index("-y")+1] if "-y" in sys.argv else 'P'
     sf = True if "--savgol" in sys.argv else False
     kf = True if "--kalman" in sys.argv else False
-    run_test(filter_savgol=sf, filter_kalman=kf) if f is None else \
-        run_test(f, xcol=xcol, ycol=ycol, filter_savgol=sf,filter_kalman=kf)
+    def test(sf=sf, kf=kf):
+        return run_test(filter_savgol=sf, filter_kalman=kf) if f is None else \
+            run_test(f, xcol=xcol, ycol=ycol, filter_savgol=sf,filter_kalman=kf)
+    res = []
+    if "-a" in sys.argv:
+        n = int(sys.argv[sys.argv.index("-n")+1]) if "-n" in sys.argv else 1
+        for sf, kf in [(True, False), (False, True), (False, False)]:
+            res.append([("",label(sf, kf)) + test(sf, kf) for i in range(n)])
+    elif "-n" in sys.argv:
+        res = [[test() for i in range(int(sys.argv[sys.argv.index("-n")+1]))]]
+    else:
+        test()
+    for entry in res:
+        [print("err, acc = {}, {}".format(err, acc)) for err, acc in entry]
+        #print("")
 
 
 

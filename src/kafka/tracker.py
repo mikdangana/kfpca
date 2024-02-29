@@ -24,14 +24,12 @@ class Tracker:
     is_scaled = False
     is_deterministic = False
     kf = None
-    px, py, Jprev = None, None, None
     t0 = None
     count = 0
-    update_count = 0
 
     def __init__(self, deterministic=False):
         self.config = PoissonProducer.load_configs()
-        self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2)
+        self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2, normalize=True)
         self.is_deterministic = deterministic
         pickledump(self.config.get("data.tracker.file").data, 
                [["TOPIC", "PARTITION", "GLOBAL MEAN LATENCY (ns)", 
@@ -46,54 +44,11 @@ class Tracker:
         return [mean_latency, throughput_recs]
 
 
-    def to_jacobian(self, y, x):
-        dy = np.subtract(np.array([y[-1],y[-1]]), np.array([y[-2], y[-2]]))
-        dx = np.subtract(np.array(x[-1]), np.array(x[-2]))
-        J = self.Jprev if x[-1] == x[-2] else \
-            np.array([[dy[r]/dx[c] for c in [0,1]] for r in [0,1]]) 
-        self.Jprev = J
-        print(f"to_jacobian.y={y}, x={x}, dy={dy}, dx={dx}, J={J}")
-        return J
-
-
-    def Hj(self, y, x):
-        J = self.to_jacobian(y, x)
-        return lambda x: J
-
-    
-    def Hx(self, y, x):
-        J = self.to_jacobian(y, x)
-        def H(x1):
-            #x1 = x1.T[0]
-            dx = np.subtract(np.array(x1), np.array(x[-1]))
-            Jx = np.matmul(J, np.array(dx))
-            Hx = np.add(np.array(y[-2:]), Jx)
-            print(f"H().x={x}, y={y}, Jx={Jx}, dx={dx}, Hx = {Hx}")
-            return Hx
-        return H
-
-
-    def pair(self, items, prev, defval=0):
-        return [defval if prev is None else prev, items[-1]]
-
-    
     def compute_latency(self, latencies, msmts, ts_ms, val):
                 # compute jacobian, Hx, and normalized throughput 
                 latencies.append([ts_ms - val, ts_ms-val])
                 if not self.is_deterministic:
-                    self.kf.ekf.x = np.array([[v] for v in latencies[-1]]) \
-                            if is_ekf() else np.array(latencies[-1]) # UKF
-                    x = self.pair(latencies, self.px, [0,0])
-                    y = self.pair(msmts, self.py) 
-                    self.px = latencies[-1]
-                    self.py = msmts[-1]
-                    hj, hx = self.Hj(y, x), self.Hx(y, x)
-                    if kf_type=="UKF" and self.update_count == 1:
-                        self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2, H=hx)
-                        self.kf.ekf.x = np.array(latencies[-1])
-                    self.kf.update(msmts[-2:], Hj=hj, H=hx)
-                    self.update_count += 1
-                    return hj, hx
+                    return self.kf.to_H(latencies, msmts)
                 return latencies[-1]
 
 
@@ -112,8 +67,7 @@ class Tracker:
                 hj, hx = self.compute_latency(latencies, msmts, ts_ms, val)
             else:
                 # predict latency/throughput
-                x = self.kf.predict([msmts[-2],msmts[-1]],Hj=hj,H=hx)[-1][-1].T
-                latencies.append(list(x[0] if is_ekf() else x)) # UKF
+                latencies.append(list(self.kf.x_estimate(msmts, hj, hx))) 
             k = f"{consumer_record.topic}-{consumer_record.partition}"
             metrics[k] = [latencies[-1]+msmts[-1:]] if k not in metrics else \
                     metrics[k] + [latencies[-1]+msmts[-1:]]
@@ -315,8 +269,7 @@ if __name__ == "__main__":
   else:
     tracker = Tracker()
     def get_ts(i):
-        return (datetime.now() - timedelta(seconds=math.exp(10-i/20))). \
-               timestamp()
+        return (datetime.now()-timedelta(seconds=math.exp(10-i/20))).timestamp()
     print("tracker.process = {}".format(
         tracker.process(
             {"topic1": 

@@ -6,15 +6,28 @@ import pandas as pd
 import plotly.express as px
 from tensorflow import keras
 from tensorflow.keras import layers
+from timeit import timeit
 from datetime import datetime
 from kf_attention import KfAttention
 
 
+dataset_file = None
+
+
+def show_includes(list_files=False):
+    for p in sys.path:
+        print(f"{p}")
+        if list_files and os.path.isdir(p):
+            os.listdir(p)
+        #print(f"files = {os.listdir(p) if os.path.isdir(p) else None}")
+
+
 
 def get_dataset():
+    f = dataset_file if dataset_file else "twitter_trace.csv"
     dataset = os.path.join(os.path.dirname(__file__), "..", "data")
     print(f"file = {dataset}")
-    train_dataset = pd.read_csv(os.path.join(dataset, "twitter_trace.csv"))
+    train_dataset = pd.read_csv(os.path.join(dataset, f))
     print(f"head = {train_dataset.head()}")
 
     d0 = datetime.strptime("01/01/2023 00:00", "%m/%d/%Y %H:%M");
@@ -65,8 +78,8 @@ def get_crossings(filename):
 def get_histories(feature, max_age=10):
     hists = []
     for age in range(max_age):
-        pad = np.array([feature[0] for i in feature[age:]])
-        hists.append(np.concatenate((pad, feature[0:age])))
+        pad = np.array([feature[0] for i in range(age)])
+        hists.append(np.concatenate((pad, feature[0:len(feature)-age])))
     return np.array(hists).T
 
 
@@ -194,12 +207,12 @@ def train_eval(x_train, y_train, x_test, y_test, n_classes):
     x_train,
     y_train,
     validation_split=0.2,
-    epochs=100, #300,
+    epochs=1, #300,
     batch_size=64,
     callbacks=callbacks
   )
 
-  plot(history)
+  #plot(history)
   model.evaluate(x_test, y_test, verbose=1)
   save_model(model)
 
@@ -276,22 +289,49 @@ def plot(history):
     plt.show()
 
 
+
+def get_arg_val(*opts):
+    for arg in opts:
+        if arg in sys.argv:
+            return sys.argv[sys.argv.index(arg) + 1]
+    return None
+
+
+
 if __name__ == "__main__":
   if "-h" in sys.argv or "--help" in sys.argv:
-      print(f"Usage: python {__file__} [--crossings csv]")
+      print(f"Usage: python {__file__} [--crossings csv|--li|--list-includes]")
   elif "--crossings" in sys.argv:
-      print(get_crossings(sys.argv[sys.argv.index("--crossings") + 1]))
+      print(get_crossings(get_arg_val("--crossings")))
+  elif "-li" in sys.argv or "--list-includes" in sys.argv:
+      show_includes()
+  elif "-a" in sys.argv or "--accuracy" in sys.argv:
+    dataset_file = get_arg_val("-a", "--accuracy")
+    data = (prepare_data(True))
+    t = timeit(lambda: get_layer(get_model(data=data),data[2][0:20],10,False), 
+               number=1)
+    print(f"layer.time = {t} s")
+  elif "--hist" in sys.argv:
+    print(f"histories = {get_histories(range(20))}")
+  elif "--train" in sys.argv:
+    if "-f" in sys.argv:
+        dataset_file = get_arg_val("-f", "--file")
+    x_train, y_train, x_test, y_test, n_classes = prepare_data()
+    model = train_eval(x_train, y_train, x_test, y_test, n_classes)
   else:
     print("Transformer")
     #x_train, y_train, x_test, y_test, n_classes = prepare_data()
     #model = train_eval(x_train, y_train, x_test, y_test, n_classes)
     data = (prepare_data(True))
-    model = get_model(data=data)
+    #model = get_model(data=data)
     #attention_val = np.array([
     #    np.array(get_layer(model, data[2][i:i+20], 3, True)[:,0,0]) \
     #    for i in range(20)]).T
     #print(f"attention_val.shape = {attention_val.shape}")
     #plot_attention(attention_val.reshape((20,20,1)), data)
-    print(f"inputs = {data[2][0:20]}")
-    plot_attention(get_layer(model, data[2][0:20], 5, True), data[2][0:20])
+    #print(f"inputs = {data[2][0:20]}")
+    t = timeit(lambda: get_layer(get_model(data=data),data[2][0:20],10,False), 
+               number=100)
+    print(f"layer.time = {t} s")
+    #plot_attention(get_layer(model, data[2][0:20], 5, True), data[2][0:20])
 

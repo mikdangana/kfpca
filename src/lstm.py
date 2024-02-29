@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow as tf, tensorflow.compat.v1 as tfv1
 import math
 from time import time_ns
 from math import erf
@@ -77,14 +77,14 @@ def err(output, x):
 
 # Returns a LQN-based cost function
 def tf_lqn_cost(model, X):
-    with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
+    with tfv1.variable_scope("model", reuse=tf.AUTO_REUSE):
         cost = tf.reduce_mean(tf.square(err(model, X)))
         with tf.name_scope("LSTM1"):
-            tf.summary.scalar('cost', cost)
-            #tf.summary.scalar('stddev', tf.sqrt(cost))
-            #tf.summary.scalar('max', tf.reduce_max(tf.square(err(model, X))))
-            #tf.summary.scalar('min', tf.reduce_min(tf.square(err(model, X))))
-            tf.summary.histogram('histogram', err(model, X))
+            tfv1.summary.scalar('cost', cost)
+            #tfv1.summary.scalar('stddev', tf.sqrt(cost))
+            #tfv1.summary.scalar('max', tf.reduce_max(tf.square(err(model, X))))
+            #tfv1.summary.scalar('min', tf.reduce_min(tf.square(err(model, X))))
+            tfv1.summary.histogram('histogram', err(model, X))
     logger.debug("model = " + str(model) + ", cost = " + str(cost))
     return cost
 
@@ -145,16 +145,16 @@ class Lstm:
     def RNN(self, x, weights, biases):
         with self.graph1.as_default():
             if use_logistic_regression:
-                cell = tf.nn.rnn_cell.LSTMCell(n_features,activation=tf.nn.relu)
+                cell = tfv1.nn.rnn_cell.LSTMCell(n_features,activation=tfv1.nn.relu)
                 layers = [cell for layer in range(n_msmt)]
-                multi_cell = tf.contrib.rnn.MultiRNNCell(layers)
+                multi_cell = tfv1.nn.MultiRNNCell(layers)
                 logger.info("RNN.cell,multi_cell,x = "+str((cell,multi_cell,x)))
-                outputs,states = tf.nn.dynamic_rnn(cell,x,dtype=tf.float32)
+                outputs,states = tfv1.nn.dynamic_rnn(cell,x,dtype=tf.float32)
                 model = tf.matmul(outputs, weights) + biases
             else:
-                cell = tf.nn.rnn_cell.LSTMCell(n_hidden, activation=tf.nn.relu)
+                cell = tfv1.nn.rnn_cell.LSTMCell(n_hidden, activation=tfv1.nn.relu)
                 logger.info("RNN.cell = " + str(cell))
-                outputs, _ = tf.contrib.rnn.static_rnn(cell, inputs=[x],
+                outputs, _ = tfv1.nn.static_rnn(cell, inputs=[x],
                             dtype=tf.float32)
                 model = tf.matmul(outputs[-1], weights['out']) + biases['out']
             logger.info("x = " +str(x)+ ", outputs = " +str(outputs)+ 
@@ -167,7 +167,7 @@ class Lstm:
 
     def tf_run_reset(self, *args, **kwargs):
         with self.graph1.as_default():
-            self.sess = tf.Session()
+            self.sess = tfv1.Session()
             sess = self.sess
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())
@@ -175,27 +175,27 @@ class Lstm:
 
 
     def tf_run(self, *args, **kwargs):
-        self.sess = self.sess if self.sess else tf.Session(graph=self.graph1)
+        self.sess = self.sess if self.sess else tfv1.Session(graph=self.graph1)
         sess = self.sess
-        tf.enable_eager_execution()
+        #tfv1.enable_eager_execution()
         with self.graph1.as_default():
             if not self.train_writer:
-                self.train_writer = tf.summary.FileWriter('lstm_ekf.train', 
+                self.train_writer = tfv1.summary.FileWriter('lstm_ekf.train', 
                                                           sess.graph)
-            sess.run(tf.compat.v1.global_variables_initializer())
-            sess.run(tf.initialize_all_variables())
-            sess.run(tf.global_variables_initializer())
-            sess.run(tf.local_variables_initializer())
+            sess.run(tfv1.global_variables_initializer())
+            sess.run(tfv1.initialize_all_variables())
+            sess.run(tfv1.global_variables_initializer())
+            sess.run(tfv1.local_variables_initializer())
             return sess.run(*args, **kwargs) 
 
 
     #Returns a trained LSTM model for R & Q Kalman Filter coefficient prediction
     def tune_model(self, epochs = n_epochs, labelfn = test_labels, cost = None,
                    nout = n_lstm_out, grad_fn = None, hist=[[], [], []]):
-        with tf.variable_scope("model", reuse=tf.AUTO_REUSE), \
+        with tfv1.variable_scope("model", reuse=tfv1.AUTO_REUSE), \
              self.graph1.as_default():
-            X = tf.placeholder("float", [n_entries, n_msmt])
-            Y = tf.placeholder("float", [n_entries, nout])
+            X = tfv1.placeholder("float", [n_entries, n_msmt])
+            Y = tfv1.placeholder("float", [n_entries, nout])
             if use_logistic_regression:
                 [X, Y, model, cost, optimizer] = tune_logistic_model()
             else:
@@ -203,7 +203,7 @@ class Lstm:
                 model = self.RNN(X, weights, biases) 
                 cost = cost(model,X) if cost else tf.reduce_mean(tf.square(
                                                                  model-Y))
-                optimizer = tf.train.MomentumOptimizer(learn_rate, 0.9)
+                optimizer = tfv1.train.MomentumOptimizer(learn_rate, 0.9)
                 def update_weights(x, y): # x=input, y=labels
                     ws, bs = [v for v in [weights['out'], biases['out']]]
                     logger.info("weights,biases = " + \
@@ -226,16 +226,16 @@ class Lstm:
 
 
     def tune_logistic_model(self):
-        X = tf.placeholder(tf.float32, [n_entries, n_msmt, n_features])
-        Y = tf.placeholder(tf.float32, [1, n_lstm_out, n_classes])
+        X = tfv1.placeholder(tf.float32, [n_entries, n_msmt, n_features])
+        Y = tfv1.placeholder(tf.float32, [1, n_lstm_out, n_classes])
         wghts=tf.Variable(tf.truncated_normal([n_entries,n_features,n_classes]))
         biases = tf.Variable(tf.ones([n_entries, n_msmt, n_classes])*1e-2)
         model = self.RNN(X, wghts, biases)
-        labels = tf.nn.softmax(Y)
+        labels = tfv1.nn.softmax(Y)
         labels = tf.reshape(Y, [n_lstm_out, n_classes])
         logits = tf.reshape(model, [n_lstm_out, n_classes])
         cost = tf.reduce_mean(tf.losses.softmax_cross_entropy(labels, logits))
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.0001)
+        optimizer = tfv1.train.GradientDescentOptimizer(learning_rate=0.0001)
         return [X, Y, model, cost, optimizer]
 
 
@@ -243,7 +243,7 @@ class Lstm:
               grad_fn=None):
         logger.info("train.train_data = " + str((len(train_data))))
         with self.graph1.as_default():
-            tf.summary.scalar('cost', cost)
+            tfv1.summary.scalar('cost', cost)
             for (i,(batch_x,batch_y)) in zip(range(len(train_data)),train_data):
                 if not grad_fn == None and i % Gf > 0 and i > 0:
                   x = tf.Variable(batch_x if use_logistic_regression else 
@@ -255,7 +255,7 @@ class Lstm:
                   grad_fn(batch_x, batch_y)
                   continue
                  # Remember 'cost' contains the model
-                ops = [train_op, cost, tf.summary.merge_all(), model] 
+                ops = [train_op, cost, tfv1.summary.merge_all(), model] 
                 logger.debug("batchx,batchy = " + str((batch_x, batch_y)))
                 _, total_cost, summa, output = self.tf_run(ops, feed_dict = 
                     {X: batch_x if use_logistic_regression else to_size(batch_x,
@@ -295,7 +295,7 @@ class Lstm:
                         ", (output,test_y) = " + str(list(zip(output, test_y))))
                 logger.debug("LSTM MSE = " + str(mse) + ", cost = " + str(cost)) 
                 print("LSTM MSE = " + str(mse) + ", cost = " + str(cost)) 
-                pickleadd("test_costs.pickle", [mse])
+                pickleadd("test_costs.pickle", mse)
         return [model, X, mse]
 
 
@@ -335,8 +335,8 @@ class Lstm:
 
     def test_logistic(self, model, X, Y, test_data):
         accs = []
-        soft = tf.reshape(tf.nn.softmax(model), [1, n_lstm_out, n_classes])
-        preds = tf.argmax(tf.reshape(tf.one_hot(tf.nn.top_k(soft).indices, 
+        soft = tf.reshape(tfv1.nn.softmax(model), [1, n_lstm_out, n_classes])
+        preds = tf.argmax(tf.reshape(tf.one_hot(tfv1.nn.top_k(soft).indices, 
             n_classes), [1, n_lstm_out, n_classes]), 1)
         labels = tf.argmax(Y, 1)
         tf_accuracy = tf.metrics.accuracy(labels, predictions=preds)
@@ -358,7 +358,7 @@ class Lstm:
 
 
 if __name__ == "__main__":
-    tf.compat.v1.disable_v2_behavior()
-    Lstm().tune_model(15)
+    tfv1.disable_v2_behavior()
+    Lstm().tune_model(150)
     logger.debug("done")
     print("Output in lstm_ekf.log")
