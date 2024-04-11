@@ -6,6 +6,7 @@
 mkdir data; cd data
 wget https://storage.googleapis.com/external-traces/charlie/trace-1/<MEMRACE_FILE>.gz
 gunzip <MEMTRACE_FILE>.gz
+cd ..
 ```
 
 
