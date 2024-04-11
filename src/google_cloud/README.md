@@ -1,5 +1,14 @@
 # Creating datasets & analysis using Google Cloud trace file(s)
 
+
+## Download Google benchmark data file
+```
+mkdir data; cd data
+wget https://storage.googleapis.com/external-traces/charlie/trace-1/<MEMRACE_FILE>.gz
+gunzip <MEMTRACE_FILE>.gz
+```
+
+
 ## Parse the trace file binary to txt using drrun software
 ```
 sh view_data.sh
