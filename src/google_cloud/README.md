@@ -10,6 +10,14 @@ cd ..
 ```
 
 
+## Install DynamoRIO release software & Update script path variables
+```
+wget https://github.com/DynamoRIO/dynamorio/releases/download/release_10.0.0/DynamoRIO-Linux-10.0.0.tar.gz
+tar xvf DynamoRIO*.tar.gz
+vim view_data.sh
+```
+
+
 ## Parse the trace file binary to txt using drrun software
 ```
 sh view_data.sh
