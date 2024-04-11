@@ -337,7 +337,6 @@ def msmt(y, ns, sz, lqn_ps):
 def run_pca_tests(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, sz, n, d, predfn, dopca):
     predfn(ys[0], lqn_ps[0]) if predfn and not dopca else None
     for lqn_p, y, i in zip(lqn_ps, ys, range(len(ys))):
-        #print("run_pca_tests().lqn_p = {}, y = {}".format(len(lqn_p), y))
         (pca_y, pca_y1) = (most_sig_pca(len(lqn_p), y), [])
         noise = array([[random()*0.001*i for i in r] for r in y]) 
         if dopca:
@@ -346,12 +345,9 @@ def run_pca_tests(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, sz, n, d, predfn, dopca):
         else:
             ystart = i-len(y) if i>len(y) else 0
             pstart = i-len(lqn_p) if i>len(lqn_p) else 0
-            #y1 = predfn(array(ys[ystart:i+1]), array(lqn_ps[pstart:i+1]))[0]
             y1 = predfn(array(ys[ystart:i+1]))[0]
-            #print("run_pca_tests().y1 = {}, ys = {}, lqn_ps = {}, y = {}, lqn_p = {}".format(y1, ys[ystart:i+1], lqn_ps[pstart:i+1], y, lqn_p))
         y1s.append(y1)
         (m, c) = solve_linear_pca(lqn_p, pca_y1) if dopca else (0, 0) 
-        #print("run_pca_tests().pca_y1 = {}, pca_y = {}".format(pca_y1, pca_y))
         if (len(ms) >= d):
             y1 = array([[y1[0]]])
             lqn_p1.append(dot(pca_y1.T,ms[-d][0])+ms[-d][1] if dopca else y1)

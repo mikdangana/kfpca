@@ -24,7 +24,7 @@ tconfig = load_testbed_config()
 ttype = tconfig.get("tracker.type").data 
 
 # KF types = ["UKF", "EKF", "EKF-PCA", "KF", "AKF-PCA"]
-kf_type = "AKF-PCA" if ttype=="PASSIVE" else ttype
+kf_type = "EKF" if ttype=="PASSIVE" else ttype
 
 
 def is_ekf():
@@ -40,7 +40,7 @@ def ekf_accuracy(ekf, msmt, indices=None, label="", predict=True, host=None):
     return ekf_accuracies(ekf, msmt, indices, label, predict, host)[-1]
 
 
-# Test the accuracies of an EKF per measurement metric
+# Test the accuracies of an EKF per measurement 
 def ekf_accuracies(ekf, msmt, indices=None, label="", predict=True, host=None):
     ekfs = ekf if isinstance(ekf, list) else [ekf]
     _ = ekf_predict(ekf) if predict else None
@@ -216,11 +216,11 @@ class PCAKalmanFilter:
     hx, hj = None, None
 
     def __init__(self, nmsmt=None, dx=None, n_components=10, H=None, 
-                       normalize=False):
+                       normalize=False, att_fname=None, att_col=None):
         self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx, hx = H)[0]
         self.n_components = n_components
         self.msmts = [0 for i in range(self.n_components)]
-        data = (prepare_data(False))
+        data = (prepare_data(False, fname=att_fname, col=att_col))
         self.model = get_model(data=data)
         self.normalize = normalize
         self.kf = self
@@ -314,7 +314,7 @@ class PCAKalmanFilter:
         self.msmts.append(msmt)
         values = [0 for i in range(N-len(self.msmts))]+self.msmts
         v = values
-        if kf_type == "AKF-PCA":
+        if kf_type.startswith("AKF"):
             values, N = self.pca_attention(values, n, vb=True), n
         mu = np.mean(np.array(values[-N:]).flatten(), axis=0)
         pca = getpca_raw(n, np.array(values[-N:]).reshape(n, n)) 
@@ -454,10 +454,14 @@ def test_zdata(generators, n):
 
 
 def predict(ekf, msmts, dy=2):
-    msmts=np.reshape(msmts.flatten()[-dy:],(dy,1)) if kf_type=="EKF" else msmts
-    priors = ekf.x_estimate(msmts) if is_pca() else update_ekf(ekf,msmts)[1]
-    priors = np.array([priors]) if is_pca() else \
+    msmts=np.reshape(msmts.flatten()[-dy:],(dy,1)) # if kf_type=="EKF" else msmts
+    #priors = ekf.x_estimate(msmts) if is_pca() else update_ekf(ekf,msmts)[1]
+    priors = update_ekf(ekf.ekf if is_pca() else ekf, msmts)[1]
+    priors = np.array([priors[-1][-1][-1]]) if is_pca() else \
                to_size(priors[-1], msmts.shape[1], msmts.shape[0])
+    #print(f"predfn.priors = {priors[-1]}, msmts.shape = {msmts.shape}")
+    #priors = to_size(priors[0], 1, msmts.shape[0]) if len(msmts.shape)<2 else \
+    #         to_size(priors[-1], msmts.shape[1], msmts.shape[0])
     print(f"predfn.priors = {priors}, msmts = {msmts}")
     return priors
 
@@ -469,15 +473,15 @@ def test_pca():
     pca = sys.argv[sys.argv.index("-pc")+1] if "-pc" in sys.argv else "false"
     xcol = sys.argv[sys.argv.index("-x")+1] if "-x" in sys.argv else 'P'
     ycol = sys.argv[sys.argv.index("-y")+1] if "-y" in sys.argv else 'P'
-    priors, ekf = [], PCAKalmanFilter(nmsmt=2, dx=2, normalize=True) \
+    priors, ekf = [], PCAKalmanFilter(nmsmt=2, dx=2, normalize=True, 
+                                      att_fname=f, att_col=xcol) \
           if is_pca() else build_ekf([], [], nmsmt=2, dx=2) 
     def predfn(msmts, x_hist = None): 
         print(f"predfn.x_hist = {x_hist}, msmts = {msmts}")
         if is_pca():
             msmts = msmts[-1] if depth(msmts)<3 else msmts[-1][-1]
             x_hist = [msmts]
-            msmts = ekf.pca_normalize(msmts[-1], is_scalar=False)
-            #ekf.to_H([[get(x,0,dv=x),get(x,0,dv=x)] for x in x_hist], msmts)
+            #msmts = ekf.pca_normalize(msmts[-1], is_scalar=False)
             ekf.to_H([[x,x] for x in x_hist] if np.array(x_hist).shape==(1,) \
                      else [[x[0],x[0]] for x in x_hist], msmts)
         return predict(ekf, msmts, dy=2)

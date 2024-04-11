@@ -11,9 +11,6 @@ from datetime import datetime
 from kf_attention import KfAttention
 
 
-dataset_file = None
-
-
 def show_includes(list_files=False):
     for p in sys.path:
         print(f"{p}")
@@ -23,14 +20,17 @@ def show_includes(list_files=False):
 
 
 
-def get_dataset():
-    f = dataset_file if dataset_file else "twitter_trace.csv"
-    dataset = os.path.join(os.path.dirname(__file__), "..", "data")
-    print(f"file = {dataset}")
-    train_dataset = pd.read_csv(os.path.join(dataset, f))
+def get_dataset(fname=None):
+    f = fname if fname else "twitter_trace.csv"
+    datadir = os.path.join(os.path.dirname(__file__), "..", "data")
+    print(f"file = {datadir}")
+    train_dataset = pd.read_csv(fname if fname and os.path.exists(fname) else \
+                                os.path.join(datadir, f))
     print(f"head = {train_dataset.head()}")
 
     d0 = datetime.strptime("01/01/2023 00:00", "%m/%d/%Y %H:%M");
+    if not 'Start' in train_dataset or not 'End' in train_dataset:
+        return train_dataset
     print(datetime.strptime(train_dataset['End'][0], "%m/%d/%Y %H:%M"))
     train_dataset['Start'] = train_dataset['Start'].transform(
         lambda d: (datetime.strptime(d, "%m/%d/%Y %H:%M") - d0).total_seconds())
@@ -42,6 +42,8 @@ def get_dataset():
 
 
 def flatten_counts(train_dataset):
+    if not 'Tweet Count' in train_dataset:
+        return train_dataset
     # 'Tweets' is a set of durations between tweets
     tweets = train_dataset['Tweet Count'].transform(
         lambda c: np.array([1e-6 if i>0 else 60/(c*1000**1) for i in range(c)]))
@@ -88,14 +90,15 @@ def get_history(feature, age):
     return pd.concat((pad, feature[0:age]))
 
 
-def get_features(verbose=True):
-    train_dataset = flatten_counts(get_dataset())
+def get_features(verbose=True, fname=None, col=None):
+    col = 'Tweet Count' if col is None else col
+    train_dataset = flatten_counts(get_dataset(fname=fname))
     max_len, w, h = len(train_dataset), 25, -10
     features = train_dataset
     f, (f0, f1) = 10, features.shape #7*features.shape[1], features.shape
     for i in range(f - features.shape[1]):
-        features[f"h{i}"] = get_history(train_dataset['Tweet Count'], -f-i)
-    target = train_dataset['Tweet Count']
+        features[f"h{i}"] = get_history(train_dataset[col], -f-i)
+    target = train_dataset[col]
     features = np.array(features) 
     target = np.array(target)
     features = features.reshape((features.shape[0], features.shape[1], 1))
@@ -113,8 +116,8 @@ def readucr(filename):
     return x, y.astype(int)
 
 
-def prepare_data(verbose=False):
-    x_train, y_train, x_test, y_test, w = get_features(verbose)
+def prepare_data(verbose=False, fname=None, col=None):
+    x_train, y_train, x_test, y_test, w = get_features(verbose, fname, col)
     #x_train, y_train = readucr(root_url + "FordA_TRAIN.tsv")
     #x_test, y_test = readucr(root_url + "FordA_TEST.tsv")
 
@@ -229,7 +232,7 @@ def save_model(model):
 def get_model(data = None):
     path = os.path.join(os.path.dirname(__file__), "..", "data", "kfmodel")
     if os.path.exists(path):
-        return keras.models.load_model(path)
+        return keras.models.load_model(path, compile=False)
     else:
         return train_eval(*data)
 

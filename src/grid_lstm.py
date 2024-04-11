@@ -7,6 +7,7 @@ from keras.layers import Bidirectional
 from scipy.signal import savgol_filter
 from functools import reduce
 from ekf import test_pca
+from utils import pickledump
 import math
 import numpy as np
 import pandas as pd
@@ -57,8 +58,16 @@ class GridLSTM(LSTM):
       return reduce(tf.add, out)
 
 
+
+def my_train_test_split(x, y, test_size=0.2):
+    mark = int((1-test_size)*len(x))
+    #return x[0:mark,:], x[mark:,:], y[0:mark,:], y[mark:,:]
+    return x[mark:,:], x[0:mark,:], y[mark:,:], y[0:mark,:]
+
+
+
 def to_grid(x, w=50):
-    flt = lambda n: 0 if math.isnan(float(n)) else int(float(n)*100)
+    flt = lambda n: 0 if math.isnan(float(n)) else float(n)
     x = np.array([list(x[i:i+w])+list(np.zeros((max(0,i+w-len(x)),1))) \
                   for i in range(len(x))])
     x = np.array([[flt(x[i,j]) for j in range(w)] for i in range(len(x))])
@@ -67,12 +76,14 @@ def to_grid(x, w=50):
 
 def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
                       predfn = None, dopca = True, pre = "", 
-                      filter_savgol=False, filter_kalman=False):
+                      filter_savgol=False, filter_kalman=False, w=50):
     (r, rows, hdrs) = (-1, {}, [])
-    flt = lambda n: 0 if math.isnan(float(n)) else int(float(n)*100)
+    flt = lambda n: 0 if math.isnan(float(n)) else float(n)
     rows = pd.read_csv(fname)
-    y = np.array([[flt(v), flt(v)] for v in rows[ycol][1:]] + [[0, 0]])
-    x = np.array(to_grid(rows[xcol]))
+    y = np.array([[flt(v), flt(v)] for v in rows[ycol][w:]] + \
+                    [[0, 0] for i in range(w)])
+    x = np.array(to_grid(rows[xcol], w=w))
+    print("xcol = {}", rows[xcol][0:5])
     if filter_savgol:
         x = savgol_filter(x, 5, 2)
         x = np.array([[max(0,v) for v in r] for r in x])
@@ -81,18 +92,19 @@ def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
         x = to_grid(np.array(test_pca()))
         print("kalman.x = {}".format(x))
     
-    X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+    X_train, X_test, y_train, y_test = my_train_test_split(x, y, test_size=0.8)
+    print("X_train = {}, y_train = {}".format(X_train[0:5], y_train[:5]))
     print("X_train = {}, y_train = {}".format(X_train.shape, y_train.shape))
     print("X_test = {}, y_test = {}, filter = {}".format(
             X_test.shape, y_test.shape, label(filter_savgol, filter_kalman)))
-    y_train = pd.get_dummies(y_train[:,1]).values
-    y_test = pd.get_dummies(y_test[:,1]).values
+    #y_train = pd.get_dummies(y_train[:,1]).values
+    #y_test = pd.get_dummies(y_test[:,1]).values
 
     return X_train, y_train[:,1], X_test, y_test[:,1]
 
 
 
-def generate_data(test_split = 0.2, variable=False, filter_savgol=False):
+def generate_data(test_split = 0.2, variable=False, filter_savgol=False, w=50):
     print("---Generating Data---")
 
     X = []
@@ -102,9 +114,9 @@ def generate_data(test_split = 0.2, variable=False, filter_savgol=False):
         x_hold = []
 
         if variable:
-            value = np.random.randint(2, size=np.random.randint(1, 50))
+            value = np.random.randint(2, size=np.random.randint(1, w))
         else:
-            value = np.random.randint(2, size=50)
+            value = np.random.randint(2, size=w)
 
         for x in value:
             x_hold.append(int(x))
@@ -122,9 +134,9 @@ def generate_data(test_split = 0.2, variable=False, filter_savgol=False):
     #exit(0)
     y = np.array(y)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-    y_train = pd.get_dummies(y_train).values
-    y_test = pd.get_dummies(y_test).values
+    X_train, X_test, y_train, y_test = my_train_test_split(X, y, test_size=0.8)
+    #y_train = pd.get_dummies(y_train).values
+    #y_test = pd.get_dummies(y_test).values
 
     return X_train, y_train, X_test, y_test
 
@@ -141,7 +153,8 @@ def create_GridLSTM_model(rows=10000, length=50):
     model.add(Dense(2, activation='softmax'))
     model.compile(loss='mse',
                   optimizer='adam',
-                  metrics=['accuracy'])
+                  metrics=['mean_squared_error'])
+                  #metrics=['accuracy'])
     print(model.summary())
     return model
 
@@ -157,16 +170,30 @@ def label(sf, kf, **kwargs):
 
 
 def run_test(*args, **kwargs):
-    X_train, y_train, X_test, y_test = generate_data() if not len(args) else \
-                                       generate_from_csv(*args, **kwargs)
-    #print("x_train, x_test = {}, {}".format(X_train, X_test))
+    X_train,y_train,X_test,y_test = generate_data(w=50) if not len(args) else\
+                                       generate_from_csv(*args, **kwargs, w=50)
+    resfile = "grid_results.pickle"    
+    print("x_train, x_test = {}, {}".format(len(X_train), len(X_test)))
+    print("x_test.shape = {}, 0-5 = {}".format(X_test.shape, X_test[0:5]))
+    print("Y_test.shape = {}, 0-5 = {}".format(y_test.shape, y_test[0:5]))
 
     model = create_GridLSTM_model(len(X_train), len(X_train[0]))
     epochs = int(sys.argv[sys.argv.index("-e")+1]) if "-e" in sys.argv else 5
     model.fit(X_train, y_train, batch_size=10, epochs=epochs)
-    err, acc = model.evaluate(X_test, y_test, batch_size=4)
-    print("eval for {} = {}".format(label(None,None,**kwargs), (err, acc)))
-    return err, acc
+    #err, acc = model.evaluate(X_test, y_test, batch_size=4)
+    #print("err, acc = {}, {}".format(err, acc))
+    #X_test = X_test[0:10]
+    predictions = np.array(
+        [model.predict(X_test[i:i+10])[-1][0] for i in range(len(X_test))])
+    print("x_test.shape = {}, 0-5 = {}".format(X_test.shape, X_test))
+    print("Y_test.shape = {}, 0-5 = {}".format(y_test.shape, y_test[0:5]))
+    #print("predictions = {}".format(predictions))
+    errs = np.array([abs(p[0]-p[1]) for p in zip(y_test, predictions)])
+    results = np.array(list(zip(y_test,predictions,errs)))
+    print("y,pred,err= {}".format(results))
+    pickledump(resfile, results)
+    print("output in {}.csv, err = {}".format(resfile, np.mean(errs)))
+    return np.mean(errs), np.mean(errs)
 
 
 
