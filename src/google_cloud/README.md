@@ -1,0 +1,28 @@
+# Creating datasets & analysis using Google Cloud trace file(s)
+
+## Parse the trace file binary to txt using drrun software
+```
+sh view_data.sh
+```
+
+
+## Converting trace txt to csv (compute csv & mem variables)
+```
+python conv_trace_to_txt.py > trace.txt
+```
+
+
+## Run prediction tests with Grid LSTM, Savitzky-Gorlay, EKF & AKF
+```
+sh run_tests.sh [grid|kalman|savgol]
+```
+
+
+## (Optional) Update 'kf-type=EKF|AKF|EKF-PCA|AKF-PCA' global variable 
+##   defined in <KFPCA_ROOT>/src/ekf.py for more Kalman filter type tests
+## <KFPCA_ROOT> refers to the clone path to https://github.com/mikdangana/kfpca
+```
+sed -i 'kf_type = "AKF"' <KFPCA_ROOT>/src/ekf.py
+```
+
+
