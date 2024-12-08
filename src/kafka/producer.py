@@ -27,6 +27,8 @@ class PoissonProducer:
         # Bootstrap servers - you can input multiple ones with comma seperated.
         # for example, bs1:9092, bs2:9092
         bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
+        if '--brokers' in sys.argv:
+          bootstrap_servers=sys.argv[sys.argv.index('--brokers')+1].split(",")
         self.producer = KafkaProducer(bootstrap_servers=bootstrap_servers[0])
 
 
@@ -86,6 +88,8 @@ class TwitterProducer:
         # Bootstrap servers - you can input multiple ones with comma seperated.
         # for example, bs1:9092, bs2:9092
         bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
+        if '--brokers' in sys.argv:
+          bootstrap_servers=sys.argv[sys.argv.index('--brokers')+1].split(",")
         self.producer = KafkaProducer(bootstrap_servers=bootstrap_servers[0])
 
 
