@@ -12,13 +12,29 @@ CHECK_INTERVAL = 30  # Seconds
 def get_metrics():
     try:
         output = subprocess.check_output(
-            ["kubectl", "top", "pods", "-n", NAMESPACE, "-o", "json"],
+            ["kubectl", "top", "pods", "-n", NAMESPACE],
             stderr=subprocess.STDOUT
         )
-        return json.loads(output)
+        lines = output.decode().splitlines()
+        metrics = {"items": []}
+        if len(lines) > 1:
+            headers = lines[0].split()
+            for line in lines[1:]:
+                values = line.split()
+                pod_data = dict(zip(headers, values))
+                metrics["items"].append({
+                    "containers": [{
+                        "usage": {
+                            "cpu": pod_data["CPU(cores)"].replace('m', ''),
+                            "memory": pod_data["MEMORY(bytes)"].replace('Mi', '')
+                        }
+                    }]
+                })
+        return metrics
     except subprocess.CalledProcessError as e:
         print(f"Error fetching metrics: {e.output.decode()}")
         return None
+
 
 def check_thresholds(metrics):
     cpu_exceeded = False

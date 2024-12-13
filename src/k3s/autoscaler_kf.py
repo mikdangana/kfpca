@@ -5,7 +5,7 @@ from ekf import ExtendedKalmanFilter, PCAKalmanFilter, predict
 
 # Configuration
 NAMESPACE = "kube-system"
-DEPLOYMENT_NAME = "my-app"
+DEPLOYMENT_NAME = "kube-app"
 CPU_THRESHOLD = 80   # Percentage
 MEMORY_THRESHOLD = 80  # Percentage
 CHECK_INTERVAL = 30  # Seconds
