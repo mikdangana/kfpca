@@ -14,6 +14,11 @@ def load_and_convert_csv(file_path, output_file):
     # Convert the first column to numeric timestamps
     df[first_column] = pd.to_datetime(df[first_column], errors='coerce').astype(int) / 10**9
 
+    # Move the specified column to the first position
+    column_to_move = 'ksurf-worker2-27aec434 CPU (m)'
+    if column_to_move in df.columns:
+        df = df[[column_to_move] + [col for col in df.columns if col != column_to_move]]
+
     # Print the DataFrame to verify
     print(df.head())
 
@@ -21,6 +26,7 @@ def load_and_convert_csv(file_path, output_file):
     df.to_csv(output_file, index=False)
     print(f"Results saved to {output_file}")
     return df
+
 
 if __name__ == "__main__":
     file_path = "/root/kfpca/data/kf_tune.csv"  # Replace with your actual file path
