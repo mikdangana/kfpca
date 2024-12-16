@@ -4,7 +4,10 @@ from datetime import datetime
 def load_and_convert_csv(file_path, output_file):
     # Load CSV into a DataFrame
     df = pd.read_csv(file_path)
-    
+
+    # Replace empty values (hyphens) with zeros
+    df.replace('-', 0, inplace=True)
+
     # Ensure the first column is treated as a string
     first_column = df.columns[0]
 
