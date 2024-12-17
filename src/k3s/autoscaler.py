@@ -1,12 +1,14 @@
 import time
 import subprocess
 import json
+import sys
 
 # Configuration
 NAMESPACE = "kube-system"
-DEPLOYMENT_NAME = "kube-app"
-CPU_THRESHOLD = 80   # Percentage
-MEMORY_THRESHOLD = 80  # Percentage
+DEPLOYMENT_NAME = sys.argv[sys.argv.index('-d')+1] \
+                  if '-d' in sys.argv else "kube-app" 
+CPU_THRESHOLD = 5   # Percentage
+MEMORY_THRESHOLD = 800  # MiB
 CHECK_INTERVAL = 30  # Seconds
 
 def get_metrics():
@@ -47,9 +49,11 @@ def check_thresholds(metrics):
         # Assuming CPU is in millicores and Memory in MiB
         if cpu_usage / 10 >= CPU_THRESHOLD:
             cpu_exceeded = True
+            print(f"cpu {cpu_usage/10} exceeded {CPU_THRESHOLD}")
 
         if memory_usage >= MEMORY_THRESHOLD:
             memory_exceeded = True
+            print(f"memory {memory_usage} exceeded {MEMORY_THRESHOLD}")
 
     return cpu_exceeded or memory_exceeded
 
