@@ -1,6 +1,6 @@
 import time
 import json
-import numpy as np
+import numpy as np, subprocess
 from kubernetes import client, config
 import sys, tensorflow as tf
 sys.path.append('/root/kfpca/src')
@@ -9,11 +9,11 @@ from ekf import ExtendedKalmanFilter, PCAKalmanFilter, predict
 # Configuration
 NAMESPACE = "kube-system"
 DEPLOYMENT_NAME = sys.argv[sys.argv.index('-d')+1] if '-d' in sys.argv else "kube-app" 
-POD_CPU = 200 # Requested cpu millicores (m) in yaml file
-POD_MEMORY = 512 # Requested memory MiB in yaml file
+POD_CPU = 200*1000*1000 # Requested cpu millicores (m) in yaml converted to (n)
+POD_MEMORY = 512*1024 # Requested memory MiB in yaml converted to KiB
 CPU_THRESHOLD = 5   # Percentage
-MEMORY_THRESHOLD = 800  # MiB
-CHECK_INTERVAL = 30  # Seconds
+MEMORY_THRESHOLD = 800*1024  # MiB -> KiB
+CHECK_INTERVAL = 5  # Seconds
 KF_TUNE_CSV = "kf_tune_converted.csv"
 KF_TUNE_COL = "ksurf-worker2-27aec434 CPU (m)"
 KUBECONFIG = "/home/ubuntu/.kube/config"
@@ -39,7 +39,7 @@ def get_metrics():
 
         deployment_pods = [
             pod for pod in metrics['items'] 
-            if pod['metadata']['labels'].get('app') == DEPLOYMENT_NAME
+            if pod['metadata']['labels'].get('app') == f"{DEPLOYMENT_NAME}-app"
         ]
 
         return {"items": [
@@ -48,7 +48,7 @@ def get_metrics():
                     {
                         "usage": {
                             "cpu": pod['containers'][0]['usage']['cpu'].replace('n', ''),
-                            "memory": pod['containers'][0]['usage']['memory'].replace('Mi', '')
+                            "memory": pod['containers'][0]['usage']['memory'].replace('Ki', '')
                         }
                     }
                 ]
@@ -66,7 +66,7 @@ def apply_attention_filter(observed_value):
     if ekf is None:
         ekf = PCAKalmanFilter(nmsmt=2, dx=2, normalize=True, att_fname=KF_TUNE_CSV, att_col=KF_TUNE_COL)
     msmts = np.append(msmts, [observed_value])
-    return predict(ekf, msmts, dy=2)
+    return predict(ekf, msmts, dy=2)[0][0]
 
 
 def check_thresholds(metrics):
@@ -75,8 +75,9 @@ def check_thresholds(metrics):
     pod_count = len(metrics['items']) if len(metrics['items']) else 1
 
     for pod in metrics['items']:
-        cpu_usage = int(pod['containers'][0]['usage']['cpu'])
-        memory_usage = int(pod['containers'][0]['usage']['memory'])
+        cpu_usage = int(pod['containers'][0]['usage']['cpu']) # nanopods
+        memory_usage = int(pod['containers'][0]['usage']['memory']) # KiB
+        print(f"cpu_usage,memory_usage = {cpu_usage},{memory_usage}")
 
         avg_cpu += apply_attention_filter(cpu_usage / 10)
         avg_memory += apply_attention_filter(memory_usage)
@@ -84,13 +85,14 @@ def check_thresholds(metrics):
     avg_cpu, avg_memory = avg_cpu / pod_count, avg_memory / pod_count
     cpu_exceeded = (avg_cpu/POD_CPU) * 100 >= CPU_THRESHOLD
     memory_exceeded = (avg_memory/POD_MEMORY) * 100 >= MEMORY_THRESHOLD
-    print(f"cpu = {avg_cpu}, threshold = {CPU_THRESHOLD}")
+    print(f"cpu = {(avg_cpu/POD_CPU)*100}, threshold = {CPU_THRESHOLD}")
 
     return cpu_exceeded or memory_exceeded
 
 
 def scale_deployment(replicas):
     try:
+        print(f"scaling deployment {DEPLOYMENT_NAME} with replicas {replicas}")
         subprocess.check_call(
             ["kubectl", "scale", "deployment", DEPLOYMENT_NAME, f"--replicas={replicas}", "-n", NAMESPACE, f"--kubeconfig={KUBECONFIG}"]
         )
@@ -103,6 +105,7 @@ def main():
     current_replicas = 1
     while True:
         metrics = get_metrics()
+        print(f"metrics = {metrics}")
         if metrics and check_thresholds(metrics):
             current_replicas += 1 if current_replicas < 10 else 0
             scale_deployment(current_replicas)
