@@ -9,6 +9,7 @@ from ekf import ExtendedKalmanFilter, PCAKalmanFilter, predict
 # Configuration
 NAMESPACE = "kube-system"
 DEPLOYMENT_NAME = sys.argv[sys.argv.index('-d')+1] if '-d' in sys.argv else "kube-app" 
+SCALER_TYPE = sys.argv[sys.argv.index('-t')+1] if '-t' in sys.argv else "KF" 
 POD_CPU = 200*1000*1000 # Requested cpu millicores (m) in yaml converted to (n)
 POD_MEMORY = 512*1024 # Requested memory MiB in yaml converted to KiB
 CPU_THRESHOLD = 5   # Percentage
@@ -63,6 +64,8 @@ def get_metrics():
 
 def apply_attention_filter(observed_value):
     global msmts, ekf
+    if SCALER_TYPE != "KF":
+        return observed_value
     if ekf is None:
         ekf = PCAKalmanFilter(nmsmt=2, dx=2, normalize=True, att_fname=KF_TUNE_CSV, att_col=KF_TUNE_COL)
     msmts = np.append(msmts, [observed_value])
