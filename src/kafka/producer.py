@@ -24,6 +24,8 @@ class PoissonProducer:
         self.config = self.load_configs()
         self.num_points = float(self.config.get("poisson.n_per_t").data)
         self.topic = self.config.get("kafka.topics").data.split(",")[0]
+        if '--topic' in sys.argv:
+            self.topic = sys.argv[sys.argv.index('--topic')+1]
         # Bootstrap servers - you can input multiple ones with comma seperated.
         # for example, bs1:9092, bs2:9092
         bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
@@ -85,6 +87,8 @@ class TwitterProducer:
         self.bkts = np.concatenate(data['Tweet Count'].transform(
                 lambda d: np.array([d for i in range(d)])))
         self.topic = self.config.get("kafka.topics").data.split(",")[0]
+        if '--topic' in sys.argv:
+            self.topic = sys.argv[sys.argv.index('--topic')+1]
         # Bootstrap servers - you can input multiple ones with comma seperated.
         # for example, bs1:9092, bs2:9092
         bootstrap_servers = self.config.get("kafka.endpoints").data.split(",")
