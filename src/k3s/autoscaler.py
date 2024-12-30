@@ -13,7 +13,7 @@ SCALER_TYPE = sys.argv[sys.argv.index('-t')+1] if '-t' in sys.argv else "BASIC"
 POD_CPU = 200*1000*1000 # Requested cpu millicores (m) in yaml converted to (n)
 POD_MEMORY = 512*1024 # Requested memory MiB in yaml converted to KiB
 # CPU_THRESHOLD Percentage
-CPU_THRESHOLD = int(sys.argv[sys.argv.index('-cpu')+1]) if '-cpu' in sys.argv else 5
+CPU_THRESHOLD = float(sys.argv[sys.argv.index('-cpu')+1]) if '-cpu' in sys.argv else 5
 MEMORY_THRESHOLD = 800*1024  # MiB -> KiB
 CHECK_INTERVAL = 5  # Seconds
 KF_TUNE_CSV = "kf_tune_converted.csv"
