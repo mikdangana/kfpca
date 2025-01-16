@@ -2,7 +2,7 @@
 if [ ! -e logs ]; then mkdir logs; fi
 if [ ! -e data ]; then mkdir data; fi
 
-for i in $(seq 1 1 2); do
+for i in $(seq 1 1 20); do
     BROKER=worker$i
     nohup sh monitor_consumer.sh $BROKER > logs/consumer_$BROKER.log 2>&1 &
     echo launched consumer monitor: logs/consumer_$BROKER.log...
