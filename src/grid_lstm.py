@@ -8,6 +8,8 @@ from scipy.signal import savgol_filter
 from functools import reduce
 from ekf import test_pca
 from utils import pickledump
+from keras import backend as k
+import keras
 import math
 import numpy as np
 import pandas as pd
@@ -60,9 +62,12 @@ class GridLSTM(LSTM):
 
 
 def my_train_test_split(x, y, test_size=0.2):
-    mark = int((1-test_size)*len(x))
+    mark = int((1-test_size)*len(x)) if test_size*len(x) <= 2000 else 2000
     #return x[0:mark,:], x[mark:,:], y[0:mark,:], y[mark:,:]
-    return x[mark:,:], x[0:mark,:], y[mark:,:], y[0:mark,:]
+    #return x[mark:,:], x[0:mark,:], y[mark:,:], y[0:mark,:]
+    X_train,X_test,y_train,y_test = \
+            x[0:mark,:],x[mark:len(x)-1,:],y[1:mark+1],y[mark+1:]
+    return X_train, X_test, y_train, y_test
 
 
 
@@ -80,10 +85,11 @@ def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
     (r, rows, hdrs) = (-1, {}, [])
     flt = lambda n: 0 if math.isnan(float(n)) else float(n)
     rows = pd.read_csv(fname)
-    y = np.array([[flt(v), flt(v)] for v in rows[ycol][w:]] + \
-                    [[0, 0] for i in range(w)])
+    y = np.array([flt(v) for v in rows[ycol][w:]] + \
+                    [0 for i in range(w)])
     x = np.array(to_grid(rows[xcol], w=w))
-    print("xcol = {}", rows[xcol][0:5])
+    #x, y = x[0:1000], y[0:1000] 
+    #print("xcol = {}", rows[xcol][0:5])
     if filter_savgol:
         x = savgol_filter(x, 5, 2)
         x = np.array([[max(0,v) for v in r] for r in x])
@@ -94,13 +100,15 @@ def generate_from_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
     
     X_train, X_test, y_train, y_test = my_train_test_split(x, y, test_size=0.8)
     print("X_train = {}, y_train = {}".format(X_train[0:5], y_train[:5]))
-    print("X_train = {}, y_train = {}".format(X_train.shape, y_train.shape))
+    print("b4.X_train = {}, y_train = {}".format(X_train.shape, y_train.shape))
     print("X_test = {}, y_test = {}, filter = {}".format(
             X_test.shape, y_test.shape, label(filter_savgol, filter_kalman)))
     #y_train = pd.get_dummies(y_train[:,1]).values
     #y_test = pd.get_dummies(y_test[:,1]).values
+    #print("aft.X_train = {}, y_train = {}".format(X_train.shape, y_train.shape))
 
-    return X_train, y_train[:,1], X_test, y_test[:,1]
+    #return X_train, y_train[:,1], X_test, y_test[:,1]
+    return X_train, y_train[:], X_test, y_test[:]
 
 
 
@@ -142,6 +150,10 @@ def generate_data(test_split = 0.2, variable=False, filter_savgol=False, w=50):
 
 
 
+def weighted_mse(y_true, y_pred, alpha=1):
+    return alpha * k.mean(k.square(y_true - y_pred))
+
+
 def create_GridLSTM_model(rows=10000, length=50):
     print('---Creating GridLSTM model---')
     embed_dim = 128
@@ -151,7 +163,7 @@ def create_GridLSTM_model(rows=10000, length=50):
     model.add(Embedding(rows, embed_dim, input_length=length)) #, dropout=0.2))
     model.add(GridLSTM(lstm_out)) #, dropout_U = 0.2, dropout_W = 0.2))
     model.add(Dense(2, activation='softmax'))
-    model.compile(loss='mse',
+    model.compile(loss='mse', #weighted_mse, # 'mse',
                   optimizer='adam',
                   metrics=['mean_squared_error'])
                   #metrics=['accuracy'])
@@ -170,29 +182,26 @@ def label(sf, kf, **kwargs):
 
 
 def run_test(*args, **kwargs):
-    X_train,y_train,X_test,y_test = generate_data(w=50) if not len(args) else\
+    X_train,y_train,X_test,y_test = generate_data(w=50) if not len(args) else \
                                        generate_from_csv(*args, **kwargs, w=50)
     resfile = "grid_results.pickle"    
     print("x_train, x_test = {}, {}".format(len(X_train), len(X_test)))
-    print("x_test.shape = {}, 0-5 = {}".format(X_test.shape, X_test[0:5]))
-    print("Y_test.shape = {}, 0-5 = {}".format(y_test.shape, y_test[0:5]))
+    print("x_test, y_test = {}, {}".format(X_test[0:10], y_test[0:10]))
 
     model = create_GridLSTM_model(len(X_train), len(X_train[0]))
     epochs = int(sys.argv[sys.argv.index("-e")+1]) if "-e" in sys.argv else 5
     model.fit(X_train, y_train, batch_size=10, epochs=epochs)
-    #err, acc = model.evaluate(X_test, y_test, batch_size=4)
-    #print("err, acc = {}, {}".format(err, acc))
-    #X_test = X_test[0:10]
+    if "--eval" in sys.argv:
+        err, acc = model.evaluate(X_test, y_test, batch_size=4)
+        print("Model Eval: err, acc = {}, {}".format(err, acc))
+        return err, acc
     predictions = np.array(
-        [model.predict(X_test[i:i+10])[-1][0] for i in range(len(X_test))])
-    print("x_test.shape = {}, 0-5 = {}".format(X_test.shape, X_test))
-    print("Y_test.shape = {}, 0-5 = {}".format(y_test.shape, y_test[0:5]))
-    #print("predictions = {}".format(predictions))
+        [model.predict(X_test[i:i+1])[-1][0] for i in range(len(X_test))])
     errs = np.array([abs(p[0]-p[1]) for p in zip(y_test, predictions)])
     results = np.array(list(zip(y_test,predictions,errs)))
-    print("y,pred,err= {}".format(results))
+    print("epochs,y,pred,err= {}".format(epochs, results))
     pickledump(resfile, results)
-    print("output in {}.csv, err = {}".format(resfile, np.mean(errs)))
+    print("output in {}.csv, err = {}, std = {}".format(resfile, np.mean(errs), np.std(errs)))
     return np.mean(errs), np.mean(errs)
 
 

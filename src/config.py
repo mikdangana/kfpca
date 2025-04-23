@@ -266,7 +266,7 @@ def load_config():
     if os.path.exists(yamlfile):
       with open(yamlfile, 'r') as stream:
         try:
-            config = yaml.load(stream)
+            config = {} #yaml.load(stream)
         except yaml.YAMLError as ex:
             logger.error("Unable to load config", ex)
     return config

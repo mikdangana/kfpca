@@ -1,5 +1,11 @@
 # Tuning Kafka using KF-PCA tracking algorithm
 
+## What is KF-PCA
+Papers on [Ksurf](https://ieeexplore.ieee.org/abstract/document/10776180) & [Ksurf+](https://doi.org/10.36227/techrxiv.174319529.94024645/v1)
+
+## Disclaimer
+This readme is a work in progress and may not yet cover all the features outlined in the papers above
+
 ## Setup
 ```
 vim config/testbed.properties
@@ -16,7 +22,7 @@ pip install -r requirements.txt
 python src/twitter_search.py
 ```
 
-## How to run the Kafka tracker
+## How to run the Kafka estimator
 ```
 sh src/kafka/setup.sh -h
 python -m flask run

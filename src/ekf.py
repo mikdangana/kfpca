@@ -8,13 +8,14 @@ import yaml, logging, logging.handlers
 #import matplotlib.pyplot as plt
 #import tensorflow as tf
 from filterpy.kalman import ExtendedKalmanFilter, KalmanFilter, UnscentedKalmanFilter, CubatureKalmanFilter, MerweScaledSigmaPoints, JulierSigmaPoints
+from math import sqrt
 from numpy import array, resize, zeros, float32, matmul, identity, shape
 from numpy import ones, dot, divide, subtract, eye, reshape
 from numpy.linalg import inv
 from functools import reduce
 from random import random
 from datetime import *
-from transformer import get_layer, get_model, prepare_data, get_histories
+from transformer import get_layer, get_model, prepare_data, get_histories_in_order
 
 
 logger = logging.getLogger("Kalman_Filter")
@@ -33,6 +34,14 @@ def is_ekf():
 
 def is_pca():
     return kf_type.endswith("PCA")
+
+
+def is_akf():
+    return kf_type.startswith("AKF")
+
+
+def is_pca_or_akf():
+    return is_pca() or is_akf()
 
 
 # Test the accuracy of an EKF using the provide measurement data
@@ -202,6 +211,25 @@ def update_ekf_msmt(z, ekfs, priors, R, hjacobian, h):
 
 
 
+def norm_bias(a, bias=0.0001):
+        #a=a/np.min(a) # flip -ve values
+        a = a - 1.01*np.min(a)
+        a1=a*1/0.01
+        b=a1 #(a1 - (1-0.89)*np.min(a1));
+        c=b/np.linalg.norm(b) #(1 if np.max(b)==np.min(b) else np.max(b)-np.min(b))
+        d=c/np.max(c)
+        d=d/np.max(d)
+        print(f"a = {a}, b = {b}, min(b) = {np.min(b)}, c = {c}, d = {d}")
+        #exit(0)
+        return d
+
+
+
+def pad(values, N):
+    return np.array(list(np.zeros(N-len(values)) if N>len(values) else []) + \
+            list(values[-N:]))
+
+
 
 class PCAKalmanFilter:
 
@@ -212,7 +240,7 @@ class PCAKalmanFilter:
     model = None
     normalize = False
     update_count = 0
-    px, py, Jprev = None, None, None
+    px, py, Jprev = None, None, np.eye(2)
     hx, hj = None, None
 
     def __init__(self, nmsmt=None, dx=None, n_components=10, H=None, 
@@ -220,17 +248,24 @@ class PCAKalmanFilter:
         self.ekf = build_ekf([], [], nmsmt = nmsmt, dx = dx, hx = H)[0]
         self.n_components = n_components
         self.msmts = [0 for i in range(self.n_components)]
-        data = (prepare_data(False, fname=att_fname, col=att_col))
+        train_fname = sys.argv[sys.argv.index("-ft")+1] if "-ft" in sys.argv else att_fname
+        train_col = sys.argv[sys.argv.index("-z")+1] if "-z" in sys.argv else att_col
+        data = (prepare_data(False, fname=att_fname, col=train_col))
         self.model = get_model(data=data)
         self.normalize = normalize
         self.kf = self
 
 
-    def to_jacobian(self, y, x):
+    #
+    # Computes prediction Jacobian
+    # Params: y - predicted variable, x - prediction variable, w - window
+    #
+    def to_jacobian(self, y, x, w=1):
         print(f"to_jacobian().y={y}, x={x}")
+        i2 = -2-w if 1+w > len(x) else -1-w
         dy = np.subtract(np.array([y[-1],y[-1]]), np.array([y[-2], y[-2]]))
-        dx = np.subtract(np.array(x[-1]), np.array(x[-2]))
-        J = self.Jprev if x[-1] == x[-2] else \
+        dx = np.subtract(np.array(x[-1-w]), np.array(x[i2]))
+        J = self.Jprev if x[-1-w] == x[i2] else \
             np.array([[dy[r]/dx[c] for c in [0,1]] for r in [0,1]]) 
         self.Jprev = J
         print(f"to_jacobian.y={y}, x={x}, dy={dy}, dx={dx}, J={J}")
@@ -239,17 +274,18 @@ class PCAKalmanFilter:
 
     def Hj(self, y, x):
         J = self.to_jacobian(y, x)
-        return lambda x: J
+        return lambda x1: J
 
     
     def Hx(self, y, x):
         J = self.to_jacobian(y, x)
+        x = np.array(x).T
         def H(x1):
             #x1 = x1.T[0]
-            dx = np.subtract(np.array(x1), np.array(x[-1]))
+            dx = np.subtract(np.array(x1).T, np.array(x[-1])).T
             Jx = np.matmul(J, np.array(dx))
-            Hx = np.add(np.array(y[-2:]), Jx)
-            print(f"H().x={x}, y={y}, Jx={Jx}, dx={dx}, Hx = {Hx}")
+            Hx = np.add(np.array(y[-1:]), Jx.T)
+            #print(f"H().x={x}, x1={x1}, y={y}, Jx={Jx}, dx={dx}, Hx = {Hx}")
             return Hx
         return H
 
@@ -266,6 +302,8 @@ class PCAKalmanFilter:
                     self.px = x_hist[-1]
                     self.py = msmts[-1]
                     hj, hx = self.Hj(y, x), self.Hx(y, x)
+                    #print("MD: x={}, y={}, H(x)={}".format(x,y,hx(x)))
+                    #exit(0)
                     if kf_type=="UKF" and self.update_count == 1:
                         self.kf = PCAKalmanFilter(nmsmt = 2, dx = 2, H=hx)
                         self.kf.ekf.x = np.array(x_hist[-1])
@@ -294,46 +332,57 @@ class PCAKalmanFilter:
         return priors
 
 
-    def pca_attention(self, values, n, vb=False):
-        print(f"pca_attention().values.0 = {values}") if vb else None
-        inputs = get_histories(values)
+
+    def pca_attention(self, values, n, vb=False, alpha=1):
+        print(f"pca_attention().values.0 = {values}, n = {n}") if vb else None
+        inputs = get_histories_in_order(values)
         print(f"pca_attention().values.1 = {inputs[-n:]}") if vb else None
         values=np.array(get_layer(self.model,inputs[-n:].reshape(n,n,1),5,True))
         print(f"pca_attention().values.2 = {values.T}") if vb else None
-        weights = sum(values)
-        weights = weights / max(weights)
+        weights = sum(values) #norm_bias(values.T[-1])[-1] 
+        weights = weights / max(weights) # deleted
+        weights = np.nan_to_num(weights, nan=1.0)
         print(f"pca_attention().weights = {weights.T}") if vb else None
-        values = weights.T * inputs
-        print(f"pca_attention().values.3 = {values}") if vb else None
-        #values = values / (values)
+        values = weights.T * inputs #weights * inputs
+        print(f"pca_attention().values.3 = {values}, shape={inputs.shape}")\
+                if vb else None
+        #values = values.reshape((values.shape[0]*values.shape[1]))
+        print(f"pca_attention().values.4 = {values}, shape={inputs.shape}")
         return values
 
     
-    def pca_normalize(self, msmt, is_scalar=True):
-        n, N = self.n_components, self.n_components*self.n_components
+    def pca_normalize(self, msmt, is_scalar=True, pca_th=0.01):
+        n, N = self.n_components, self.n_components**2
         self.msmts.append(msmt)
-        values = [0 for i in range(N-len(self.msmts))]+self.msmts
-        v = values
-        if kf_type.startswith("AKF"):
-            values, N = self.pca_attention(values, n, vb=True), n
-        mu = np.mean(np.array(values[-N:]).flatten(), axis=0)
-        pca = getpca_raw(n, np.array(values[-N:]).reshape(n, n)) 
-        #print(f"normalize().pca = {pca}, evecs={pca.components_}, " \
-        #      f"evals={pca.explained_variance_}, valuesN={values[-N:]}")
-        scores = pca.transform(np.array(values[-N:]).reshape(n, n))
-        #print(f"normalize().scores = {scores}, msmts = {self.msmts}")
-        pca_components = [np.zeros((1, n))[0] if s<1 else v for s,v in \
-            zip(pca.explained_variance_, pca.components_)] # noise reduction
-        #print(f"normalize().pca_components = {pca_components}")
-        msmt_hat = np.dot(scores[:,:n], pca_components)
-        msmt_hat += mu
-        res = msmt_hat[-1][-1] if is_scalar else self.norma(msmt_hat.T[-1])
-        print(f"normalize().msmt_hat = {msmt_hat}, mu={mu}, res = {res}")
+        values=[self.msmts[0] for i in range(N-len(self.msmts))]+self.msmts
+        if kf_type.startswith("AKF"): # Attention
+            values, N1 = self.pca_attention(values, n, vb=True), n
+        if is_pca():                  # PCA
+            mu = np.mean(pad(values, N).flatten(), axis=0)
+            print(f"normalize().n = {n}, vals = {values.shape}, N = {pad(values, N).shape}")
+            pca = getpca_raw(n, pad(values, N).reshape(n, n)) 
+            print(f"normalize().pca = {pca}, evecs={pca.components_}, " \
+                  f"evar={pca.explained_variance_}, mu={mu}, "
+                  f"valuesN={np.array(values[-N:]).reshape(n, n)}")
+            scores = pca.transform(np.array(values[-N:]).reshape(n, n))
+            #print(f"normalize().scores = {scores}, msmts = {self.msmts}")
+            pca_components = [np.zeros((1,n))[0] if v<pca_th else c for v,c in \
+                zip(pca.explained_variance_, pca.components_)] # noise reduction
+            print(f"normalize().comps ={pca_components}, scores={scores[:,:n]}")
+            #msmt_hat = np.array(values[-N:]).reshape(n,n) 
+            msmt_hat = np.dot(scores[:,:n], pca_components) + mu 
+            msmt_hat = self.norma(msmt_hat.flatten())
+        else:                         # Normalize
+            msmt_hat = values[-N:]
+        res = msmt_hat[-1][-1] if is_scalar else np.array(msmt_hat).T
+        print(f"normalize().msmts = {self.msmts[-N:]}," \
+              f"msmt_hat = {msmt_hat}, res = {res}")
         return res
 
 
-    def norma(self, v):
-        return v / np.linalg.norm(v)
+    def norma(self, v, force=False):
+        norm = np.linalg.norm(v) 
+        return v / ( norm if norm>0 else 1 ) if is_pca() or force else v
 
 
 
@@ -454,14 +503,10 @@ def test_zdata(generators, n):
 
 
 def predict(ekf, msmts, dy=2):
-    msmts=np.reshape(msmts.flatten()[-dy:],(dy,1)) # if kf_type=="EKF" else msmts
-    #priors = ekf.x_estimate(msmts) if is_pca() else update_ekf(ekf,msmts)[1]
-    priors = update_ekf(ekf.ekf if is_pca() else ekf, msmts)[1]
+    msmts=np.reshape(msmts.flatten()[-dy:],(1,dy))
+    priors = update_ekf(ekf.ekf if is_pca_or_akf() else ekf, msmts)[1]
     priors = np.array([priors[-1][-1][-1]]) if is_pca() else \
                to_size(priors[-1], msmts.shape[1], msmts.shape[0])
-    #print(f"predfn.priors = {priors[-1]}, msmts.shape = {msmts.shape}")
-    #priors = to_size(priors[0], 1, msmts.shape[0]) if len(msmts.shape)<2 else \
-    #         to_size(priors[-1], msmts.shape[1], msmts.shape[0])
     print(f"predfn.priors = {priors}, msmts = {msmts}")
     return priors
 
@@ -475,29 +520,35 @@ def test_pca():
     ycol = sys.argv[sys.argv.index("-y")+1] if "-y" in sys.argv else 'P'
     priors, ekf = [], PCAKalmanFilter(nmsmt=2, dx=2, normalize=True, 
                                       att_fname=f, att_col=xcol) \
-          if is_pca() else build_ekf([], [], nmsmt=2, dx=2) 
+          if is_pca_or_akf() else build_ekf([], [], nmsmt=2, dx=2) 
     def predfn(msmts, x_hist = None): 
-        print(f"predfn.x_hist = {x_hist}, msmts = {msmts}")
-        if is_pca():
+        print(f"predfn.x_hist = {x_hist}, msmts = {msmts}, type = {kf_type}")
+        if is_pca_or_akf():
             msmts = msmts[-1] if depth(msmts)<3 else msmts[-1][-1]
-            x_hist = [msmts]
-            #msmts = ekf.pca_normalize(msmts[-1], is_scalar=False)
-            ekf.to_H([[x,x] for x in x_hist] if np.array(x_hist).shape==(1,) \
-                     else [[x[0],x[0]] for x in x_hist], msmts)
+            x_hist = [msmts[:-1]]
+            msmts = ekf.pca_normalize(msmts[-1], is_scalar=False)
+            if is_pca():
+              ekf.to_H([[x,x] for x in x_hist] if np.array(x_hist).shape==(1,) \
+                       else [[x[0],x[0]] for x in x_hist], msmts)
         return predict(ekf, msmts, dy=2)
     tag = f"_{kf_type}"
-    test_pca_csv(f,xcol,ycol,None,predfn,dopca=pca.lower()=="true",pre=tag,
-                 predictions=priors)
+    test_pca_csv(f,xcol,ycol,None,predfn,dopca=pca.lower()=="true",
+                 pre=tag, predictions=priors)
     return priors
 
 
 
+# Supported parameters: 
+# python ekf.py [-t EKF|AKF|UKF] [-f file] [-ft file] [-x col] [-y col] [-z col] [--testpcacsv] [--testlstm] [--testekf]
+#
 if __name__ == "__main__":
     kf_type = sys.argv[sys.argv.index("-t")+1] if "-t" in sys.argv else kf_type
     if "--testpcacsv" in sys.argv:
         test_pca()
     elif "--testlstm" in sys.argv:
         test_lstm_ekf()
-    else:
+    elif "--testekf" in sys.argv:
         test_ekf()
+    else:
+        test_pca()
     print("Output in lstm_ekf.log")

@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import os, random, sys, time
 import pandas as pd
 import plotly.express as px
-from tensorflow import keras
-from tensorflow.keras import layers
+import keras
+from keras import layers
 from timeit import timeit
 from datetime import datetime
 from kf_attention import KfAttention
@@ -77,6 +77,12 @@ def get_crossings(filename):
     return dataset
 
 
+def get_histories_in_order(a, max_age=10):
+    b = list(np.zeros(max_age**2-len(a) if max_age**2>len(a) else 0))
+    b.extend(a)
+    return np.array(b[-max_age**2:]).reshape(max_age, max_age)
+
+
 def get_histories(feature, max_age=10):
     hists = []
     for age in range(max_age):
@@ -85,19 +91,24 @@ def get_histories(feature, max_age=10):
     return np.array(hists).T
 
 
-def get_history(feature, age):
-    pad = feature[age:].transform(lambda d: feature[0])
-    return pd.concat((pad, feature[0:age]))
+def get_history(feature, start):
+    pad = feature[start:].transform(lambda d: feature[0])
+    return pd.concat((pad, feature[0:start]))
 
 
 def get_features(verbose=True, fname=None, col=None):
     col = 'Tweet Count' if col is None else col
     train_dataset = flatten_counts(get_dataset(fname=fname))
+    train_dataset[col] = pd.to_numeric(train_dataset[col], errors="coerce").fillna(0)
     max_len, w, h = len(train_dataset), 25, -10
-    features = train_dataset
+    features = train_dataset[[col]]
     f, (f0, f1) = 10, features.shape #7*features.shape[1], features.shape
+    print(f"f, f0, f1, shape.1 = {(f, f0, f1, 1)}")
     for i in range(f - features.shape[1]):
         features[f"h{i}"] = get_history(train_dataset[col], -f-i)
+    #features['nodeid'] = features[col] # TODO: hack, find a better solution
+    #features['timestamp'] = features[col] # TODO: hack, find a better solution
+    print(f"features = {features[0:10]}, cols = {features.columns}")
     target = train_dataset[col]
     features = np.array(features) 
     target = np.array(target)
@@ -118,12 +129,6 @@ def readucr(filename):
 
 def prepare_data(verbose=False, fname=None, col=None):
     x_train, y_train, x_test, y_test, w = get_features(verbose, fname, col)
-    #x_train, y_train = readucr(root_url + "FordA_TRAIN.tsv")
-    #x_test, y_test = readucr(root_url + "FordA_TEST.tsv")
-
-    #x_train = x_train.reshape((x_train.shape[0], x_train.shape[1], 1))
-    #x_test = x_test.reshape((x_test.shape[0], x_test.shape[1], 1))
-    print(f"y_train = {y_train.shape}, y_test = {y_test.shape}")
 
     n_classes = max(np.concatenate((y_train, y_test)))+1
 
@@ -143,7 +148,7 @@ def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
     x = KfAttention(
         #key_dim=head_size, num_heads=num_heads, dropout=dropout
         head_size, num_heads, dropout=dropout
-    )(x, x)
+    )(x, training=x)
     x = layers.Dropout(dropout)(x)
     res = x + inputs
 
@@ -181,36 +186,48 @@ def build_model(
     return keras.Model(inputs, outputs)
 
 
+def pred_loss(x_pred, targets):
+    """Compute the Kalman filter loss using predicted Q and R."""
+    loss = torch.zeros(1, requires_grad=True, dtype=torch.float32)  # ✅ Ensure loss tracks gradients
+
+    error = (x_pred - targets) ** 2  # Squared error
+    loss = loss + error  # ✅ Accumulate loss while maintaining gradients
+
+    return loss  # ✅ Keep it inside computation graph
+
+
 def train_eval(x_train, y_train, x_test, y_test, n_classes):
   input_shape = x_train.shape[1:] #x_train[0:x_train.shape[1]].shape 
   print(f"train_eval().input_shape={input_shape}, xtrain.shape={x_train.shape}")
 
+  # $N=4$ layers, each with dimension $d_{model}=256$, feed-forward $d_{ff}=4$, attention heads $h=4, d_{k}=d_{v}=256$ and dropout rate of 0.25
   model = build_model(
     input_shape,
     head_size=256,
     num_heads=4,
     ff_dim=4,
     num_transformer_blocks=4,
-    mlp_units=[128],
+    mlp_units=[16384], #128],
     mlp_dropout=0.4,
     dropout=0.25,
     n_classes=n_classes,
   )
 
   model.compile(
-    loss="sparse_categorical_crossentropy",
+    loss="mse", #pred_loss, #"sparse_categorical_crossentropy",
     optimizer=keras.optimizers.Adam(learning_rate=1e-4),
-    metrics=["sparse_categorical_accuracy"],
+    metrics=["mse"] #"sparse_categorical_accuracy"],
   )
   model.summary()
 
   callbacks = [keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)]
 
+  print(f"xtrain = {x_train[0:10]}, ytrain = {y_train[0:10]}")
   history = model.fit(
     x_train,
     y_train,
-    validation_split=0.2,
-    epochs=1, #300,
+    validation_split=0.4,
+    epochs=300, #300,
     batch_size=64,
     callbacks=callbacks
   )
@@ -219,9 +236,9 @@ def train_eval(x_train, y_train, x_test, y_test, n_classes):
   model.evaluate(x_test, y_test, verbose=1)
   save_model(model)
 
-  get_layer(model, x_test[0:20], 3)
+  return get_layer(model, x_test[0:20], 2)
 
-  return model
+  #return model
 
 
 def save_model(model):
@@ -326,14 +343,14 @@ if __name__ == "__main__":
     #x_train, y_train, x_test, y_test, n_classes = prepare_data()
     #model = train_eval(x_train, y_train, x_test, y_test, n_classes)
     data = (prepare_data(True))
-    #model = get_model(data=data)
+    model = get_model(data=data)
     #attention_val = np.array([
     #    np.array(get_layer(model, data[2][i:i+20], 3, True)[:,0,0]) \
     #    for i in range(20)]).T
     #print(f"attention_val.shape = {attention_val.shape}")
     #plot_attention(attention_val.reshape((20,20,1)), data)
     #print(f"inputs = {data[2][0:20]}")
-    t = timeit(lambda: get_layer(get_model(data=data),data[2][0:20],10,False), 
+    t = timeit(lambda: get_layer(model,data[2][0:20],10,False), 
                number=100)
     print(f"layer.time = {t} s")
     #plot_attention(get_layer(model, data[2][0:20], 5, True), data[2][0:20])

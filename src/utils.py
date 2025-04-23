@@ -321,9 +321,10 @@ def test_pca_basic(ns=100, predfn=None, dopca=True, lqn_ps=[], ys=[], pre=""):
         #(lqn_p1, y1s) = (scale(lqn_p1, lqn_ps), scale(y1s, lqn_ps))
     save_pca_info(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, d, pre, dopca)
     err = sum([sum(abs(p-p1.T[0])) for p,p1 in zip(lqn_ps,lqn_p1)])/len(lqn_ps)
+    erry = sum([sum(abs(p-p1.T[0])) for p,p1 in zip(ys, y1s)])[-1]/len(ys)
     sd = np.std([sum(abs(p-p1.T[0])) for p,p1 in zip(lqn_ps,lqn_p1)])
     p = sum([sum(abs(array(p))) for p,p1 in zip(lqn_ps,lqn_p1)])/len(lqn_ps)
-    print("Err.mean, Err.std, LQNP.mean, % = "+str((err, sd, p, 100*err/p)))
+    print("Err.mean, Err.std, Err.y, % = "+str((err, sd, erry, 100*err/p)))
     print(f"Output in pca_*{pre}.pickle files")
     print("test_pca() done")
     return 100 * err / p
@@ -337,7 +338,7 @@ def msmt(y, ns, sz, lqn_ps):
 def run_pca_tests(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, sz, n, d, predfn, dopca):
     predfn(ys[0], lqn_ps[0]) if predfn and not dopca else None
     for lqn_p, y, i in zip(lqn_ps, ys, range(len(ys))):
-        (pca_y, pca_y1) = (most_sig_pca(len(lqn_p), y), [])
+        (pca_y, pca_y1) = (most_sig_pca(len(lqn_p), y[-1:]), [])
         noise = array([[random()*0.001*i for i in r] for r in y]) 
         if dopca:
             y1 = predfn(y) if predfn else y + noise
@@ -351,7 +352,7 @@ def run_pca_tests(lqn_ps, ys, y1s, ms, lqn_p0, lqn_p1, sz, n, d, predfn, dopca):
         if (len(ms) >= d):
             y1 = array([[y1[0]]])
             lqn_p1.append(dot(pca_y1.T,ms[-d][0])+ms[-d][1] if dopca else y1)
-            lqn_p0.append(dot(pca_y.T, m) + c)
+            lqn_p0.append(dot(pca_y.T, m) + c if dopca else y1)
         ms.append((m, c)) 
 
 
@@ -414,22 +415,12 @@ def to_size(data, width, entries = n_entries):
 def test_pca_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
                  predfn = None, dopca = True, pre = "", predictions=[]):
         (r, rows, hdrs) = (-1, {}, [])
-        #with open(fname) as f:
-        #    rdr = csv.reader(f, delimiter=' ')
-        #    for row in rdr:
-        #        r = r + 1
-        #        if r > 0:
-        #            row = row[0].split(',')
-        #            for c in range(len(row)):
-        #                if r == 1:
-        #                    hdrs.append(row[c])
-        #                    rows[hdrs[c]] = []
-        #                else:
-        #                    rows[hdrs[c]].append(to_float(row[c]))
         rows = pd.read_csv(fname)
+        rows[xcol] = pd.to_numeric(rows[xcol], errors="coerce").fillna(0)
+        rows[ycol] = pd.to_numeric(rows[ycol], errors="coerce").fillna(0)
         ys = list(zip(rows[ycol], rows[ycol]))
-        (zs, ks) = (zeros((10,len(ys[0]))), range(len(ys)))
-        ys = [array(ys[r-10:r] if r>10 else rows[ycol][0]+zs) for r in ks]
+        (zs, rowids) = (zeros((10,len(ys[0]))), range(len(ys)))
+        ys = [array(ys[r-10:r] if r>10 else rows[ycol][0]+zs) for r in rowids]
         xs = [[a for j in range(1)] for a in rows[xcol]][1:] + repeat([0],1)
         predfn = predfn if predfn else lambda y: ys[rows[ycol].index(y[0][0])]
         perr = test_pca_basic(len(rows[ycol]), predfn, dopca, xs, ys, pre)

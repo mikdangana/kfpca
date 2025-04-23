@@ -10,7 +10,7 @@ from ekf import ExtendedKalmanFilter, PCAKalmanFilter, predict
 NAMESPACE = "kube-system"
 DEPLOYMENT_NAME = sys.argv[sys.argv.index('-d')+1] if '-d' in sys.argv else "kube-app" 
 SCALER_TYPE = sys.argv[sys.argv.index('-t')+1] if '-t' in sys.argv else "BASIC" 
-POD_CPU = 200*1000*1000 # Requested cpu millicores (m) in yaml converted to (n)
+POD_CPU = 200*1000*1000 # Requested cpu millicores (mi) in yaml converted to (n)
 POD_MEMORY = 512*1024 # Requested memory MiB in yaml converted to KiB
 # CPU_THRESHOLD Percentage
 CPU_THRESHOLD = float(sys.argv[sys.argv.index('-cpu')+1]) if '-cpu' in sys.argv else 5
@@ -91,7 +91,7 @@ def check_thresholds(metrics):
     memory_exceeded = (avg_memory/POD_MEMORY) * 100 >= MEMORY_THRESHOLD
     print(f"cpu = {(avg_cpu/POD_CPU)*100}, threshold = {CPU_THRESHOLD}")
 
-    return cpu_exceeded or memory_exceeded
+    return cpu_exceeded # or memory_exceeded
 
 
 def scale_deployment(replicas):

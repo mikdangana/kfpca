@@ -204,12 +204,9 @@ runcmd:
           target:
             type: Utilization
             averageUtilization: 20  # Target 50% CPU utilization
-      behavior:
-        scaleUp:
-          stabilizationWindowSeconds: 2
-        scaleDown:
-          stabilizationWindowSeconds: 2
     EOF
   - kubectl apply -f /root/hpa.yaml  --kubeconfig=/home/ubuntu/.kube/config
+  # - kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
 
 
