@@ -4,7 +4,7 @@ from numpy import array, resize, zeros, float32, matmul, identity, shape
 from numpy import ones, dot, divide, subtract
 from numpy.linalg import inv
 from functools import reduce
-from jproperties import Properties
+#from jproperties import Properties
 from random import random
 from subprocess import Popen
 from utils import *
@@ -359,12 +359,25 @@ def init_config_variables():
     logger.info("init_config_variables() done")
 
 
+
+def read_properties_file(filepath):
+    props = {}
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                key, sep, value = line.partition('=')
+                props[key.strip()] = value.strip()
+    return props
+
+
 def load_testbed_config(path=os.path.join(
             os.path.abspath(os.path.join(os.path.dirname(__file__),'..')),
             'config', 'testbed.properties')):
-    config = Properties()
-    with open(path, 'rb') as config_file:
-        config.load(config_file)
+    #config = Properties()
+    #with open(path, 'rb') as config_file:
+    #    config.load(config_file)
+    config = read_properties_file(config_file)
     return config
 
 
