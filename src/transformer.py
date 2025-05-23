@@ -130,7 +130,12 @@ def readucr(filename):
 def prepare_data(verbose=False, fname=None, col=None):
     x_train, y_train, x_test, y_test, w = get_features(verbose, fname, col)
 
-    n_classes = max(np.concatenate((y_train, y_test)))+1
+    # Step 1: Flatten both to 1D
+    y_train_flat = y_train.reshape(-1)
+    y_test_flat = y_test.reshape(-1)
+
+    # Step 2: Concatenate and compute number of unique labels
+    n_classes = int(np.max(np.concatenate((y_train_flat, y_test_flat)))) + 1
 
     idx = np.random.permutation(len(x_train))
     x_train = x_train[idx]
