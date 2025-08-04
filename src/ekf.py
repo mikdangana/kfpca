@@ -26,6 +26,7 @@ ttype = tconfig.get("tracker.type").data
 
 # KF types = ["UKF", "EKF", "EKF-PCA", "KF", "AKF-PCA"]
 kf_type = "EKF" if ttype=="PASSIVE" else ttype
+vb = False
 
 
 def is_ekf():
@@ -337,7 +338,7 @@ class PCAKalmanFilter:
         print(f"pca_attention().values.0 = {values}, n = {n}") if vb else None
         inputs = get_histories_in_order(values)
         print(f"pca_attention().values.1 = {inputs[-n:]}") if vb else None
-        values=np.array(get_layer(self.model,inputs[-n:].reshape(n,n,1),5,True))
+        values=np.array(get_layer(self.model,inputs[-n:].reshape(n,n,1),5,vb))
         print(f"pca_attention().values.2 = {values.T}") if vb else None
         weights = sum(values) #norm_bias(values.T[-1])[-1] 
         weights = weights / max(weights) # deleted
@@ -347,7 +348,7 @@ class PCAKalmanFilter:
         print(f"pca_attention().values.3 = {values}, shape={inputs.shape}")\
                 if vb else None
         #values = values.reshape((values.shape[0]*values.shape[1]))
-        print(f"pca_attention().values.4 = {values}, shape={inputs.shape}")
+        print(f"pca_attention().values.4 = {values}, shape={inputs.shape}") if vb else None
         return values
 
     
@@ -356,27 +357,26 @@ class PCAKalmanFilter:
         self.msmts.append(msmt)
         values=[self.msmts[0] for i in range(N-len(self.msmts))]+self.msmts
         if kf_type.startswith("AKF"): # Attention
-            values, N1 = self.pca_attention(values, n, vb=True), n
+            values, N1 = self.pca_attention(values, n, vb=vb), n
         if is_pca():                  # PCA
             mu = np.mean(pad(values, N).flatten(), axis=0)
-            print(f"normalize().n = {n}, vals = {values.shape}, N = {pad(values, N).shape}")
+            print(f"normalize().n = {n}, vals = {values.shape}, N = {pad(values, N).shape}") if vb else None
             pca = getpca_raw(n, pad(values, N).reshape(n, n)) 
             print(f"normalize().pca = {pca}, evecs={pca.components_}, " \
-                  f"evar={pca.explained_variance_}, mu={mu}, "
-                  f"valuesN={np.array(values[-N:]).reshape(n, n)}")
+              f"evar={pca.explained_variance_}, mu={mu}, "
+              f"valuesN={np.array(values[-N:]).reshape(n, n)}") if vb else None
             scores = pca.transform(np.array(values[-N:]).reshape(n, n))
             #print(f"normalize().scores = {scores}, msmts = {self.msmts}")
             pca_components = [np.zeros((1,n))[0] if v<pca_th else c for v,c in \
                 zip(pca.explained_variance_, pca.components_)] # noise reduction
-            print(f"normalize().comps ={pca_components}, scores={scores[:,:n]}")
-            #msmt_hat = np.array(values[-N:]).reshape(n,n) 
+            print(f"normalize().comps ={pca_components}, scores={scores[:,:n]}") if vb else None
             msmt_hat = np.dot(scores[:,:n], pca_components) + mu 
             msmt_hat = self.norma(msmt_hat.flatten())
         else:                         # Normalize
             msmt_hat = values[-N:]
         res = msmt_hat[-1][-1] if is_scalar else np.array(msmt_hat).T
         print(f"normalize().msmts = {self.msmts[-N:]}," \
-              f"msmt_hat = {msmt_hat}, res = {res}")
+              f"msmt_hat = {msmt_hat}, res = {res}") if vb else None
         return res
 
 
@@ -507,7 +507,7 @@ def predict(ekf, msmts, dy=2):
     priors = update_ekf(ekf.ekf if is_pca_or_akf() else ekf, msmts)[1]
     priors = np.array([priors[-1][-1][-1]]) if is_pca() else \
                to_size(priors[-1], msmts.shape[1], msmts.shape[0])
-    print(f"predfn.priors = {priors}, msmts = {msmts}")
+    print(f"predfn.priors = {priors}, msmts = {msmts}") if vb else None
     return priors
 
 
@@ -522,7 +522,7 @@ def test_pca():
                                       att_fname=f, att_col=xcol) \
           if is_pca_or_akf() else build_ekf([], [], nmsmt=2, dx=2) 
     def predfn(msmts, x_hist = None): 
-        print(f"predfn.x_hist = {x_hist}, msmts = {msmts}, type = {kf_type}")
+        print(f"predfn.x_hist = {x_hist}, msmts = {msmts}, type = {kf_type}") if vb else None
         if is_pca_or_akf():
             msmts = msmts[-1] if depth(msmts)<3 else msmts[-1][-1]
             x_hist = [msmts[:-1]]
@@ -532,9 +532,9 @@ def test_pca():
                        else [[x[0],x[0]] for x in x_hist], msmts)
         return predict(ekf, msmts, dy=2)
     tag = f"_{kf_type}"
-    test_pca_csv(f,xcol,ycol,None,predfn,dopca=pca.lower()=="true",
+    err = test_pca_csv(f,xcol,ycol,None,predfn,dopca=pca.lower()=="true",
                  pre=tag, predictions=priors)
-    return priors
+    return err #priors
 
 
 

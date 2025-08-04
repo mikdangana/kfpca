@@ -20,18 +20,18 @@ def show_includes(list_files=False):
 
 
 
-def get_dataset(fname=None):
+def get_dataset(fname=None, vb=False):
     f = fname if fname else "twitter_trace.csv"
     datadir = os.path.join(os.path.dirname(__file__), "..", "data")
-    print(f"file = {datadir}")
+    print(f"file = {datadir}") if vb else None
     train_dataset = pd.read_csv(fname if fname and os.path.exists(fname) else \
                                 os.path.join(datadir, f))
-    print(f"head = {train_dataset.head()}")
+    print(f"head = {train_dataset.head()}") if vb else None
 
     d0 = datetime.strptime("01/01/2023 00:00", "%m/%d/%Y %H:%M");
     if not 'Start' in train_dataset or not 'End' in train_dataset:
         return train_dataset
-    print(datetime.strptime(train_dataset['End'][0], "%m/%d/%Y %H:%M"))
+    print(datetime.strptime(train_dataset['End'][0], "%m/%d/%Y %H:%M")) if vb else None
     train_dataset['Start'] = train_dataset['Start'].transform(
         lambda d: (datetime.strptime(d, "%m/%d/%Y %H:%M") - d0).total_seconds())
     train_dataset['End'] = train_dataset['End'].transform(
@@ -103,12 +103,12 @@ def get_features(verbose=True, fname=None, col=None):
     max_len, w, h = len(train_dataset), 25, -10
     features = train_dataset[[col]]
     f, (f0, f1) = 10, features.shape #7*features.shape[1], features.shape
-    print(f"f, f0, f1, shape.1 = {(f, f0, f1, 1)}")
+    print(f"f, f0, f1, shape.1 = {(f, f0, f1, 1)}") if verbose else None
     for i in range(f - features.shape[1]):
         features[f"h{i}"] = get_history(train_dataset[col], -f-i)
     #features['nodeid'] = features[col] # TODO: hack, find a better solution
     #features['timestamp'] = features[col] # TODO: hack, find a better solution
-    print(f"features = {features[0:10]}, cols = {features.columns}")
+    print(f"features = {features[0:10]}, cols = {features.columns}") if verbose else None
     target = train_dataset[col]
     features = np.array(features) 
     target = np.array(target)
@@ -241,18 +241,18 @@ def train_eval(x_train, y_train, x_test, y_test, n_classes):
   model.evaluate(x_test, y_test, verbose=1)
   save_model(model)
 
-  return get_layer(model, x_test[0:20], 2)
+  #return get_layer(model, x_test[0:20], 2)
 
-  #return model
+  return model
 
 
 def save_model(model):
-    path = os.path.join(os.path.dirname(__file__), "..", "data", "kfmodel")
+    path = os.path.join(os.path.dirname(__file__), "..","data","kfmodel.keras")
     return model.save(path)
 
 
 def get_model(data = None):
-    path = os.path.join(os.path.dirname(__file__), "..", "data", "kfmodel")
+    path = os.path.join(os.path.dirname(__file__), "..","data","kfmodel.keras")
     if os.path.exists(path):
         return keras.models.load_model(path, compile=False)
     else:

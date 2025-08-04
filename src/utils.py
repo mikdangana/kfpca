@@ -327,7 +327,7 @@ def test_pca_basic(ns=100, predfn=None, dopca=True, lqn_ps=[], ys=[], pre=""):
     print("Err.mean, Err.std, Err.y, % = "+str((err, sd, erry, 100*err/p)))
     print(f"Output in pca_*{pre}.pickle files")
     print("test_pca() done")
-    return 100 * err / p
+    return err, sd, erry, 100 * err / p
 
 
 def msmt(y, ns, sz, lqn_ps):
@@ -423,9 +423,10 @@ def test_pca_csv(fname, xcol = '$uAppP', ycol = '$fGet_n', y1col = '$fGet',
         ys = [array(ys[r-10:r] if r>10 else rows[ycol][0]+zs) for r in rowids]
         xs = [[a for j in range(1)] for a in rows[xcol]][1:] + repeat([0],1)
         predfn = predfn if predfn else lambda y: ys[rows[ycol].index(y[0][0])]
-        perr = test_pca_basic(len(rows[ycol]), predfn, dopca, xs, ys, pre)
-        print("test_pca_csv(): % err = {}".format(perr))
+        err = test_pca_basic(len(rows[ycol]), predfn, dopca, xs, ys, pre)
+        print("test_pca_csv(): % err = {}".format(err[-1]))
         predictions.extend(xs)
+        return err
 
 
 if __name__ == "__main__":
