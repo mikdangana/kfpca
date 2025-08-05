@@ -69,3 +69,14 @@ python src/ekf.py --testpcacsv -f data/twitter_trace.csv -x 'Tweet Count' -y 'Tw
 ```
 tail out_ekfpca.txt
 ```
+
+
+### Run Adversarial Tests
+```
+python src/adversarial_tester.py -f data/analysis/data_kf_2_node_metrics.csv -x "ksurf-master CPU (m)"
+```
+
+or simply
+```
+python src/adversarial_tester.py
+```
