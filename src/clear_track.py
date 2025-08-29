@@ -6,6 +6,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from filterpy.kalman import ExtendedKalmanFilter# as EKF
 from filterpy.kalman import KalmanFilter
+from math import ceil
 from sklearn.metrics import mean_squared_error
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -250,7 +251,7 @@ def train_lstm(data, seq_length=10, epochs=300, batch_size=16, lr=0.001):
             total_loss += loss.item()
 
         if (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss:.4f}")
+            print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss}")
 
     return model
 
@@ -382,12 +383,24 @@ def test_clear_track():
     # Apply LSTM-trained Kalman Filter
     print("Applying LSTM-based Kalman Filter...")
     filtered_data, Q_values, R_values = apply_lstm_kalman_filter(lstm_model, data[int(TRAIN_SPLIT*len(data)):], seq_length=10)
+    filtered_ekf, _, _ = apply_lstm_kalman_filter(lstm_model, data, seq_length=10, skip_lstm=True)
+    n = min(len(data), len(filtered_data), len(filtered_ekf))
+
+    df_out = pd.DataFrame({
+        "raw": np.asarray(data[:n], dtype=float),
+        "lstm_kf": np.asarray(filtered_data[:n], dtype=float),
+        "ekf": np.asarray(filtered_ekf[:n], dtype=float),
+    })
+
+    df_out.to_csv("clear_track_data.csv", index=False)
     #lstm_model = train_lstm(data[0:int(TRAIN_SPLIT*len(data))], seq_length=10, epochs=100, batch_size=16, lr=0.001)
-    maes = [[], []]
+    maes, L = [[], []], ceil(len(data)/10)
     for i in range(10):
         print(f"computing maes = {maes}, split = {TRAIN_SPLIT}")
-        maes[0].append(summary_stats(data, apply_lstm_kalman_filter(lstm_model, data, seq_length=10, skip_lstm=False)[0], tag="(LSTM)")[0])
-        maes[1].append(summary_stats(data, apply_lstm_kalman_filter(lstm_model, data, seq_length=10, skip_lstm=True)[0], tag="(No LSTM)")[0])
+        datai = data[i*L:(i+1)*L]
+        maes[0].append(summary_stats(datai, apply_lstm_kalman_filter(lstm_model, datai, seq_length=10, skip_lstm=False)[0], tag="(LSTM)")[0])
+        maes[1].append(summary_stats(datai, apply_lstm_kalman_filter(lstm_model, datai, seq_length=10, skip_lstm=True)[0], tag="(No LSTM)")[0])
+    print("mse.delta = ", np.array(maes[0])-np.array(maes[1]))
     print("mse.delta,l = ", np.array(maes[0]).mean()-np.array(maes[1]).mean(),L)
     # Plot results
     mae_fig = plt.figure(figsize=(10, 5))
@@ -397,16 +410,299 @@ def test_clear_track():
     plt.ylabel("CPU MAE Delta")
     mae_fig.savefig("ksurf_plus_lstm_vs_non_lstm.png")
     print("Saved figure to ksurf_plus_lstm_vs_non_lstm.png")
-    #plt.show()
+    plt.show()
 
     plt.figure(figsize=(10, 5))
     plt.plot(data[int(TRAIN_SPLIT*len(data)):], label="Raw Data", alpha=0.5)
     plt.plot(np.arange(10+1, len(filtered_data)+10+1), filtered_data, label="LSTM-Kalman Output", linewidth=2)
+    plt.plot(np.arange(10+1, len(filtered_ekf)+10+1), filtered_ekf, label="Kalman Output", linewidth=2)
     plt.xlabel("Time Step")
     plt.ylabel(column_name)
     plt.legend()
     plt.title("LSTM-Kalman Filter Performance on CPU Usage")
-    #plt.show()
+    plt.show()
+
+
+import os, sys, json
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from math import ceil
+# assumes train_lstm, apply_lstm_kalman_filter, load_data already exist in this file
+
+# -------------------- Caching helpers --------------------
+
+def _results_cache_path() -> str:
+    return "ksurf_epoch_results.json"
+
+def save_epoch_results_json(path: str, results: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+
+def load_epoch_results_json(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+# -------------------- Decile / metric helpers --------------------
+
+def _decile_segments(arr: np.ndarray, k: int = 10):
+    """Yield k segments (last one possibly shorter) for decile-wise eval."""
+    L = ceil(len(arr) / k)
+    for i in range(k):
+        seg = arr[i*L : (i+1)*L]
+        yield seg
+
+def _align_for_metrics(raw_seg: np.ndarray, filt_seg: np.ndarray, seq_len: int):
+    """
+    Align raw and filtered for MAE/MSE:
+      filtered starts after seq_len lookback, so compare raw_seg[seq_len:] with filtered.
+    """
+    if len(raw_seg) <= seq_len or len(filt_seg) == 0:
+        return np.array([]), np.array([])
+    raw = raw_seg[seq_len:]
+    m = min(len(raw), len(filt_seg))
+    return raw[-m:], filt_seg[-m:]
+
+def _decile_mae_mse_for_method(arr: np.ndarray, model, seq_len: int, use_lstm: bool):
+    """
+    For each decile segment, compute (MAE, MSE) for either:
+      - LSTM+EKF (use_lstm=True)
+      - EKF baseline (use_lstm=False, skip_lstm=True)
+    """
+    maes, mses = [], []
+    for seg in _decile_segments(arr, k=10):
+        if len(seg) <= seq_len + 1:
+            maes.append(np.nan); mses.append(np.nan); continue
+        filt, *_ = apply_lstm_kalman_filter(model, seg, seq_length=seq_len, skip_lstm=(not use_lstm))
+        raw_aln, filt_aln = _align_for_metrics(seg, filt, seq_len)
+        if len(raw_aln) == 0:
+            maes.append(np.nan); mses.append(np.nan); continue
+        err = raw_aln - filt_aln
+        maes.append(float(np.nanmean(np.abs(err))))
+        mses.append(float(np.nanmean(err*err)))
+    return np.array(maes, dtype=float), np.array(mses, dtype=float)
+
+
+def _decile_delta_mae_ci(arr: np.ndarray, model, seq_len: int):
+    """
+    For each decile segment, compute the mean of paired differences:
+        d_i = |raw_i - lstm_i| - |raw_i - ekf_i|
+    and its 95% CI half-width (1.96 * std(d)/sqrt(n)), using aligned samples.
+    Returns:
+        delta_means: np.array shape (10,)
+        delta_cis:   np.array shape (10,)  # half-widths for 95% CI
+    """
+    delta_means, delta_cis = [], []
+    for seg in _decile_segments(arr, k=10):
+        if len(seg) <= seq_len + 1:
+            delta_means.append(np.nan); delta_cis.append(np.nan); continue
+        # Filter both ways on the SAME segment
+        lstm_filt, *_ = apply_lstm_kalman_filter(model, seg, seq_length=seq_len, skip_lstm=False)
+        ekf_filt,  *_ = apply_lstm_kalman_filter(model, seg, seq_length=seq_len, skip_lstm=True)
+
+        raw_lstm, lstm_aln = _align_for_metrics(seg, lstm_filt, seq_len)
+        raw_ekf,  ekf_aln  = _align_for_metrics(seg, ekf_filt,  seq_len)
+        m = min(len(raw_lstm), len(raw_ekf), len(lstm_aln), len(ekf_aln))
+        if m == 0:
+            delta_means.append(np.nan); delta_cis.append(np.nan); continue
+
+        raw  = raw_lstm[-m:]        # same aligned raw for both
+        lstm = lstm_aln[-m:]
+        ekf  = ekf_aln[-m:]
+
+        d = np.abs(raw - lstm) - np.abs(raw - ekf)  # paired differences
+        mu = float(np.nanmean(d))
+        if m >= 2:
+            se = float(np.nanstd(d, ddof=1) / np.sqrt(m))
+            ci = 1.96 * se
+        else:
+            ci = np.nan
+        delta_means.append(mu)
+        delta_cis.append(ci)
+
+    return np.array(delta_means, dtype=float), np.array(delta_cis, dtype=float)
+
+
+# -------------------- Plotting-only from cache --------------------
+
+def plot_from_cache(cache_path: str = None):
+    """Load cached epoch results and produce the two plots (no training)."""
+    cache_path = cache_path or _results_cache_path()
+    fontsize = 18
+    print("plot_from_cache().cache_path,exists =", cache_path, os.path.exists(cache_path))
+
+    if not os.path.exists(cache_path):
+        print("[cache] file not found:", os.path.abspath(cache_path))
+        return
+    D = load_epoch_results_json(cache_path)
+
+    # Extract baseline + epochs
+    baseline_mae_dec = np.array(D["baseline"]["mae_dec"], dtype=float)
+    baseline_mse_dec = np.array(D["baseline"]["mse_dec"], dtype=float)
+    baseline_mae_mean = float(D["baseline"]["mae_mean"])
+    baseline_mse_mean = float(D["baseline"]["mse_mean"])
+    epochs_list = [r["epochs"] for r in D["epochs"]]
+
+    # Bar chart
+    labels = ["EKF"] + [f"L-EKF $\epsilon$={E}" for E in epochs_list]
+    bar_vals = [baseline_mae_mean] + [float(r["mae_mean"]) for r in D["epochs"]]
+    mse_vals = [baseline_mse_mean] + [float(r["mse_mean"]) for r in D["epochs"]]
+    # 1) Use a categorical colormap (tab10/tab20 are great for distinct colors)
+    cmap = plt.get_cmap("tab10")              # 10 distinct colors
+    colors = cmap(np.arange(len(labels)) % 10)
+    print("plot_from_cache().colors =", colors)
+
+    plt.figure(figsize=(10, 5))
+    bars = plt.bar(range(len(labels)), bar_vals, color=colors,edgecolor="black")
+    plt.xticks(range(len(labels)), labels, rotation=0)
+    plt.ylabel("Mean MAE",fontsize=fontsize)
+    plt.title("Mean L-EKF MAE by Epoch",fontsize=fontsize)
+    for rect, mse in zip(bars, mse_vals):
+        y = rect.get_height()
+        plt.text(rect.get_x() + rect.get_width()/2.0, y,
+                 f"MSE={mse:.4g}", ha="center", va="bottom", fontsize=fontsize)
+    plt.tight_layout()
+    plt.savefig("ksurf_epoch_bar_mae_mse.png")
+    print("Saved bar chart -> ksurf_epoch_bar_mae_mse.png")
+    plt.show()
+
+    print("print_from_cache().epochs,epochs[0],baseline =", len(D["epochs"]), len(D["epochs"][0]["mae_dec"]), len(baseline_mae_dec))
+
+    # Delta lines
+    plt.figure(figsize=(11, 5))
+    x_dec = np.arange(1, 11)
+    for r in D["epochs"]:
+        if "delta_mae_dec" in r:
+            delta = np.array(r["delta_mae_dec"], dtype=float)
+            yerr  = np.array(r.get("delta_mae_ci", [np.nan]*len(delta)), dtype=float)
+        else:
+            # Backward compatibility: compute delta from cached MAE arrays (no CI)
+            #delta = np.array(r["mae_dec"], dtype=float) - np.array(D["baseline"]["mae_dec"], dtype=float)
+            delta = np.array(r["mae_dec"], dtype=float) - baseline_mae_dec
+            yerr  = None
+        e, mean, std = r['epochs'], np.nanmean(delta), np.nanstd(delta)
+        label = f"e={e} ($\Delta$ MAE $\\rho$={mean:.3g}, $\sigma$={std:.3g})"
+        print(label)
+        #plt.plot(x_dec, delta, marker="o", label=f"e={r['epochs']} ($\delta$MAE $\rho$={np.nanmean(delta):.3g})")
+        if yerr is None or np.all(np.isnan(yerr)):
+            plt.plot(x_dec, delta, marker="o", label=label)
+           # plt.plot(x_dec, delta, marker="o", label=label)
+        else:
+            plt.errorbar(x_dec, delta, yerr=yerr, marker="o", capsize=4, label=label)
+
+    plt.axhline(0.0, color="gray", linewidth=1, linestyle="--")
+    plt.xlabel("Decile",fontsize=fontsize)
+    plt.ylabel("L-EKF MAE - EKF MAE",fontsize=fontsize)
+    plt.title("L-EKF MAE vs EKF MAE per Decile",fontsize=fontsize)
+    plt.xticks(x_dec)
+    plt.legend(fontsize=fontsize)
+    plt.tight_layout()
+    plt.savefig("ksurf_epoch_delta_lines.png")
+    print("Saved delta lines -> ksurf_epoch_delta_lines.png")
+    plt.show()
+
+# -------------------- Main multi-epoch test (compute + cache + plot) --------------------
+
+def test_clear_track_multi_epoch():
+    """
+    Train/evaluate for epochs in {1,10,20,30}, cache results to JSON,
+    and plot (1) mean MAE bars with MSE annotations, (2) delta lines vs EKF.
+    On subsequent runs, if cache exists and matches settings, we reuse it.
+    """
+    # -------- CLI / defaults --------
+    f = os.path.join(sys.path[0], '..', 'data', 'twitter_trace.csv')
+    f = sys.argv[sys.argv.index("-f")+1] if "-f" in sys.argv else f
+    xcol = sys.argv[sys.argv.index("-x")+1] if "-x" in sys.argv else 'Tweets 09-May-2023'
+    lr   = float(sys.argv[sys.argv.index("-l")+1]) if "-l" in sys.argv else 1e-4
+    seq_len = 10
+    epochs_list = [1, 10, 20, 30]
+    train_split = 0.4
+    cache_path = _results_cache_path()
+    force = ("--recompute" in sys.argv)  # optional flag to force recompute
+
+    print("test_clear_track_multi_epoch().file, x, lr, cache =", f, xcol, lr, cache_path)
+
+    # -------- Load data --------
+    data = load_data(f, xcol).astype(float)
+    train_n = int(train_split * len(data))
+    train_data = data[:train_n]
+
+    # -------- Try cache --------
+    use_cache = False
+    if os.path.exists(cache_path) and not force:
+        try:
+            D = load_epoch_results_json(cache_path)
+            meta = D.get("meta", {})
+            if (meta.get("file") == os.path.abspath(f) and
+                meta.get("column") == xcol and
+                #int(meta.get("len", -1)) == int(len(data)) and
+                #int(meta.get("train_n", -1)) == int(train_n) and
+                #int(meta.get("seq_len", -1)) == int(seq_len) and
+                #float(meta.get("lr", -1.0)) == float(lr) and
+                meta.get("epochs_list", []) == epochs_list):
+                print("[cache] using cached results:", os.path.abspath(cache_path))
+                use_cache = True
+                # go straight to plotting
+                plot_from_cache(cache_path)
+                return
+            else:
+                print("[cache] cache exists but metadata mismatch; recomputing.")
+        except Exception as e:
+            print("[cache] failed to read cache; recomputing. err=", e)
+
+    # -------- Compute baseline EKF --------
+    print("[EKF] computing baseline decile metrics...")
+    baseline_mae_dec, baseline_mse_dec = _decile_mae_mse_for_method(data, None, seq_len, use_lstm=False)
+    baseline_mae_mean = float(np.nanmean(baseline_mae_dec))
+    baseline_mse_mean = float(np.nanmean(baseline_mse_dec))
+    print(f"[EKF] mean MAE={baseline_mae_mean:.6g}, mean MSE={baseline_mse_mean:.6g}")
+
+    # -------- Train & evaluate each epoch spec --------
+    results_epochs = []
+    for E in epochs_list:
+        print(f"[train] epochs={E}")
+        model = train_lstm(train_data, seq_length=seq_len, epochs=E, batch_size=16, lr=lr)
+        mae_dec, mse_dec = _decile_mae_mse_for_method(data, model, seq_len, use_lstm=True)
+        mae_mean = float(np.nanmean(mae_dec))
+        mse_mean = float(np.nanmean(mse_dec))
+        # NEW: per-decile delta MAE vs EKF with 95% CI half-widths
+        delta_means, delta_cis = _decile_delta_mae_ci(data, model, seq_len)
+        print(f"[eval] epochs={E}: mean MAE={mae_mean:.6g}, mean MSE={mse_mean:.6g}")
+        results_epochs.append({
+            "epochs": E,
+            "mae_dec": mae_dec.tolist(),
+            "mse_dec": mse_dec.tolist(),
+            "mae_mean": mae_mean,
+            "mse_mean": mse_mean,
+            "delta_mae_dec": delta_means.tolist(),
+            "delta_mae_ci":  delta_cis.tolist(),
+        })
+
+    # -------- Save cache --------
+    results_payload = {
+        "meta": {
+            "file": os.path.abspath(f),
+            "column": xcol,
+            "len": int(len(data)),
+            "train_n": int(train_n),
+            "seq_len": int(seq_len),
+            "lr": float(lr),
+            "epochs_list": epochs_list,
+            "timestamp": pd.Timestamp.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        },
+        "baseline": {
+            "mae_dec": baseline_mae_dec.tolist(),
+            "mse_dec": baseline_mse_dec.tolist(),
+            "mae_mean": baseline_mae_mean,
+            "mse_mean": baseline_mse_mean,
+        },
+        "epochs": results_epochs,
+    }
+    save_epoch_results_json(cache_path, results_payload)
+    print("Saved plot data ->", os.path.abspath(cache_path))
+
+    # -------- Plot from the just-saved cache --------
+    plot_from_cache(cache_path)
 
 
 # --- NEW IMPORTS (safe to add near the top) ---
@@ -558,9 +854,9 @@ def collect_prometheus_and_tune(
     verify_tls: bool = True,
     min_points: int = 300,
     seq_length: int = 10,
-    epochs: int = 200,
+    epochs: int = 100,
     batch_size: int = 32,
-    lr: float = 1e-3,
+    lr: float = 1e-4,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Pull metrics from Prometheus, write/append CSV, and when enough data exists:
@@ -654,6 +950,46 @@ def collect_prometheus_and_tune(
 
     return X, y
 
+# --- add somewhere near the top (helpers) ---
+def _default_mean_latency_query(namespace: str) -> str:
+    # mean = rate(sum) / rate(count) over 5m window
+    return (
+        f'sum(rate(http_request_duration_seconds_sum{{namespace="{namespace}"}}[5m]))'
+        ' / '
+        f'sum(rate(http_request_duration_seconds_count{{namespace="{namespace}"}}[5m]))'
+    )
+
+
+def _fallback_y_candidates() -> str:
+    """Mean latency from Prometheus' own HTTP server."""
+    return (
+        "sum(rate(prometheus_http_request_duration_seconds_sum[5m]))"
+        " / "
+        "sum(rate(prometheus_http_request_duration_seconds_count[5m]))"
+    )
+
+
+def _default_x_queries(namespace: str) -> List[str]:
+    ns = namespace
+    return [
+        f"sum(rate(http_requests_total{{namespace='{ns}'}}[5m]))",
+        "avg(node_cpu_utilization)",
+        "avg(node_memory_utilization)",
+        "avg(node_network_transmit_bytes_total + node_network_receive_bytes_total)"
+        # spot_price handled as constant column after alignment
+    ]
+
+def _fallback_x_queries() -> List[str]:
+    return [
+            "sum(rate(prometheus_http_requests_total[5m]))",
+            # CPU-seconds per second used by this process (≈ cores used)
+            "rate(process_cpu_seconds_total[5m])",
+            # Absolute RSS as last resort
+            "process_resident_memory_bytes",
+            # Outbound bytes/s served by Prometheus HTTP (response size sum rate)
+            "sum(rate(prometheus_http_response_size_bytes_sum[5m]))"
+    ]
+
 
 # ----------------------------------------------------------------------
 # OPTIONAL: Example CLI usage (keeps your existing main intact)
@@ -668,8 +1004,12 @@ if __name__ == "__main__" and "--prom" in sys.argv:
         return sys.argv[sys.argv.index(flag)+1] if flag in sys.argv else dflt
 
     base = _arg("--prom", "http://localhost:9090")
-    yq = _arg("--y", "node_load1")
-    xqs = [_arg("--x")] if "--x" in sys.argv else []
+    yq = _arg("--y", None)
+    if yq is None:
+      yq = _fallback_y_candidates() #_default_mean_latency_query("default")
+    xqs = [_arg("--x")] if "--x" in sys.argv else None
+    if xqs is None:
+      xqs = _fallback_x_queries() #_default_x_queries("default")
     window = int(_arg("--window", "3600"))
     step = _arg("--step", "5s")
     csv_out = _arg("--csv", "ksurf_metrics.csv")
@@ -698,5 +1038,5 @@ if __name__ == "__main__" and "--prom" in sys.argv:
 
 
 # Main function
-if __name__ == "__main__":
-    test_clear_track()
+elif __name__ == "__main__":
+    test_clear_track_multi_epoch()

@@ -11,3 +11,6 @@ PyYAML
 scikit-learn
 filterpy
 kubernetes
+statsmodels
+keras-tcn
+

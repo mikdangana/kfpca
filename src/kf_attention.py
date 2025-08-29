@@ -284,6 +284,7 @@ class KfAttention(tf.keras.layers.Layer):
         else:
             return output_shape
 
+
     def get_config(self):
         config = super().get_config()
 

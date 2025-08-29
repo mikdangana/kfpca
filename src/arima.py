@@ -11,6 +11,10 @@ PRED_WINDOW = 4
 def predict_next_arima(series, order=(1,1,1)):
     """ Fits an ARIMA model and predicts the next value in the series. """
     try:
+        p = int(sys.argv[sys.argv.index('-p')+1]) if '-p' in sys.argv else 1
+        d = int(sys.argv[sys.argv.index('-d')+1]) if '-d' in sys.argv else 1
+        r = int(sys.argv[sys.argv.index('-r')+1]) if '-r' in sys.argv else 1
+        order = (p, d, r)
         series = series.dropna()  # Remove NaN values
         if len(series) < 3:  # Need at least 3 points for ARIMA
             return np.nan

@@ -4,6 +4,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import itertools
 
+plt.rcParams.update({
+    # --- text & label sizes ---
+    "font.size": 18,            # base size for everything
+    "axes.titlesize": 18,       # axes title
+    "axes.labelsize": 14,       # x-/y-label
+    "xtick.labelsize": 13,
+    "ytick.labelsize": 13,
+    "legend.fontsize": 18,
+    "legend.title_fontsize": 18,
+    # --- optional: make the whole plot a bit larger ---
+    "figure.figsize": (12, 7)   # width, height in inches
+})
+
 # Extract tarball and filter valid folders
 def extract_and_filter_tarball(tarball_path, extract_path):
     with tarfile.open(tarball_path, "r") as tar:
@@ -176,8 +189,8 @@ def plot_worker_cpus(autoscaler_data_by_threshold = None):
     } if autoscaler_data_by_threshold is None else autoscaler_data_by_threshold 
 
     # Define colors for each autoscaler type
-    colors = {"NA": "blue", "TH": "green", "HPA": "red", "KF": "orange", "DR": "pink", "DRKF": "purple"}
-    markers = {"NA": "o", "TH": "s", "HPA": "D", "KF": "^", "DR": "x", "DRKF": "v"}  # Different markers for each autoscaler type
+    colors = {"NA": "blue", "TH": "green", "HPA": "red", "KF": "orange"}
+    markers = {"NA": "o", "TH": "s", "HPA": "D", "KF": "^"}  # Different markers for each autoscaler type
 
 
     # Create figure with subplots (one for each threshold)
@@ -191,6 +204,8 @@ def plot_worker_cpus(autoscaler_data_by_threshold = None):
 
         # Plot each autoscaler type as a separate line
         for autoscaler in data.keys():
+            if not autoscaler in ["hpa", "kf", "na", "th"]:
+                continue
             avg_values = data[autoscaler][0]  # Extract values for each autoscaler type
             ax.plot([i*2 for i in range(len(avg_values))], avg_values, marker=markers[autoscaler.upper()], linestyle="-", color=colors[autoscaler.upper()], label=f"{autoscaler.upper()}: {avg_values.mean():.2f} ± {avg_values.std():.2f}")
 
@@ -198,8 +213,8 @@ def plot_worker_cpus(autoscaler_data_by_threshold = None):
         ax.set_ylabel("Worker CPU Usage (m)")
         if idx // 2 == 1:
             ax.set_xlabel("Time (s)")
-        ax.set_title(f"Worker Pod CPU Usage for {float(threshold)/100*200000:.0f}µ Threshold")
-        ax.legend(title="Autoscaler Type")
+        ax.set_title(f"Worker Pod CPU Usage for {float(threshold)/100*200000:.0f}µ Threshold", fontsize=14)
+        ax.legend(title="Autoscaler Type", title_fontsize=14, fontsize=10)
 
     # Adjust layout
     plt.tight_layout()
@@ -214,11 +229,9 @@ def plot_summary(autoscaler_data):
         "na": "blue",
         "th": "green",
         "hpa": "red",
-        "dr": "yellow",
-        "drkf": "purple",
         "kf": "orange"
     }
-    markers = {"NA": "o", "TH": "s", "HPA": "D", "KF": "^", "DR": "x", "DRKF": "v"}  # Different markers for each autoscaler type
+    markers = {"NA": "o", "TH": "s", "HPA": "D", "KF": "^"}  # Different markers for each autoscaler type
 
     # Create figure
     fig, ax = plt.subplots(figsize=(8, 5))

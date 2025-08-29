@@ -23,6 +23,7 @@ packages:
   - openjdk-11-jdk  # Install Java for μBench
   - git             # To clone μBench and kafka-python
   - python3         # Python3 is required
+  - python3-pip     # Pip
   - net-tools  # for netstat
   - curl
   - docker
